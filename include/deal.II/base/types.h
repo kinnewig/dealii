@@ -172,7 +172,7 @@ namespace types
 /**
  * Declare type used in Epetra.
  */
-using TrilinosScalar = double;
+using TrilinosScalar = std::complex<double>;
 
 
 namespace TrilinosWrappers
