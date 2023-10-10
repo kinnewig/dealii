@@ -460,7 +460,7 @@ namespace LinearAlgebra
       SparsityPatternBase::resize(parallel_partitioning.size(),
                                   parallel_partitioning.size());
       Teuchos::RCP<Tpetra::Map<int, dealii::types::signed_global_dof_index>>
-        map = parallel_partitioning.make_tpetra_map(communicator, false);
+        map = parallel_partitioning.make_tpetra_map_rcp(communicator, false);
       reinit_sp(
         map, map, n_entries_per_row, column_space_map, graph, nonlocal_graph);
     }
@@ -475,7 +475,7 @@ namespace LinearAlgebra
       SparsityPatternBase::resize(parallel_partitioning.size(),
                                   parallel_partitioning.size());
       Teuchos::RCP<Tpetra::Map<int, dealii::types::signed_global_dof_index>>
-        map = parallel_partitioning.make_tpetra_map(communicator, false);
+        map = parallel_partitioning.make_tpetra_map_rcp(communicator, false);
       reinit_sp(
         map, map, n_entries_per_row, column_space_map, graph, nonlocal_graph);
     }
@@ -492,10 +492,10 @@ namespace LinearAlgebra
                                   col_parallel_partitioning.size());
       Teuchos::RCP<Tpetra::Map<int, dealii::types::signed_global_dof_index>>
         row_map =
-          row_parallel_partitioning.make_tpetra_map(communicator, false);
+          row_parallel_partitioning.make_tpetra_map_rcp(communicator, false);
       Teuchos::RCP<Tpetra::Map<int, dealii::types::signed_global_dof_index>>
         col_map =
-          col_parallel_partitioning.make_tpetra_map(communicator, false);
+          col_parallel_partitioning.make_tpetra_map_rcp(communicator, false);
       reinit_sp(row_map,
                 col_map,
                 n_entries_per_row,
@@ -516,10 +516,10 @@ namespace LinearAlgebra
                                   col_parallel_partitioning.size());
       Teuchos::RCP<Tpetra::Map<int, dealii::types::signed_global_dof_index>>
         row_map =
-          row_parallel_partitioning.make_tpetra_map(communicator, false);
+          row_parallel_partitioning.make_tpetra_map_rcp(communicator, false);
       Teuchos::RCP<Tpetra::Map<int, dealii::types::signed_global_dof_index>>
         col_map =
-          col_parallel_partitioning.make_tpetra_map(communicator, false);
+          col_parallel_partitioning.make_tpetra_map_rcp(communicator, false);
       reinit_sp(row_map,
                 col_map,
                 n_entries_per_row,
@@ -541,10 +541,10 @@ namespace LinearAlgebra
                                   col_parallel_partitioning.size());
       Teuchos::RCP<Tpetra::Map<int, dealii::types::signed_global_dof_index>>
         row_map =
-          row_parallel_partitioning.make_tpetra_map(communicator, false);
+          row_parallel_partitioning.make_tpetra_map_rcp(communicator, false);
       Teuchos::RCP<Tpetra::Map<int, dealii::types::signed_global_dof_index>>
         col_map =
-          col_parallel_partitioning.make_tpetra_map(communicator, false);
+          col_parallel_partitioning.make_tpetra_map_rcp(communicator, false);
       reinit_sp(row_map,
                 col_map,
                 n_entries_per_row,
@@ -569,7 +569,7 @@ namespace LinearAlgebra
         {
           Teuchos::RCP<Tpetra::Map<int, dealii::types::signed_global_dof_index>>
             nonlocal_map =
-              nonlocal_partitioner.make_tpetra_map(communicator, true);
+              nonlocal_partitioner.make_tpetra_map_rcp(communicator, true);
           nonlocal_graph = Teuchos::rcp(
             new Tpetra::CrsGraph<int, dealii::types::signed_global_dof_index>(
               nonlocal_map, nonlocal_map, 0));
@@ -593,10 +593,10 @@ namespace LinearAlgebra
                                   col_parallel_partitioning.size());
       Teuchos::RCP<Tpetra::Map<int, dealii::types::signed_global_dof_index>>
         row_map =
-          row_parallel_partitioning.make_tpetra_map(communicator, false);
+          row_parallel_partitioning.make_tpetra_map_rcp(communicator, false);
       Teuchos::RCP<Tpetra::Map<int, dealii::types::signed_global_dof_index>>
         col_map =
-          col_parallel_partitioning.make_tpetra_map(communicator, false);
+          col_parallel_partitioning.make_tpetra_map_rcp(communicator, false);
       reinit_sp(row_map,
                 col_map,
                 nontrilinos_sparsity_pattern,
@@ -623,7 +623,7 @@ namespace LinearAlgebra
       SparsityPatternBase::resize(parallel_partitioning.size(),
                                   parallel_partitioning.size());
       Teuchos::RCP<Tpetra::Map<int, dealii::types::signed_global_dof_index>>
-        map = parallel_partitioning.make_tpetra_map(communicator, false);
+        map = parallel_partitioning.make_tpetra_map_rcp(communicator, false);
       reinit_sp(map,
                 map,
                 nontrilinos_sparsity_pattern,

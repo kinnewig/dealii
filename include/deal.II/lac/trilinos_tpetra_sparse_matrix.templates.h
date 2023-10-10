@@ -64,7 +64,7 @@ namespace LinearAlgebra
 
         // Create a new map
         column_space_map =
-          column_parallel_partitioning.make_tpetra_map(communicator, false);
+          column_parallel_partitioning.make_tpetra_map_rcp(communicator, false);
 
         if (column_space_map->getComm()->getRank() == 0)
           {
@@ -75,7 +75,7 @@ namespace LinearAlgebra
           }
 
         Teuchos::RCP<MapType> row_space_map =
-          row_parallel_partitioning.make_tpetra_map(communicator, false);
+          row_parallel_partitioning.make_tpetra_map_rcp(communicator, false);
 
         // if we want to exchange data, build a usual Trilinos sparsity pattern
         // and let that handle the exchange. otherwise, manually create a
