@@ -47,12 +47,8 @@ namespace LinearAlgebra
     template <typename Number>
     Vector<Number>::Vector()
       : Subscriptor()
-      , vector(new Tpetra::Vector<Number, int, types::signed_global_dof_index>(
-          Teuchos::RCP<Tpetra::Map<int, types::signed_global_dof_index>>(
-            new Tpetra::Map<int, types::signed_global_dof_index>(
-              0,
-              0,
-              Utilities::Trilinos::tpetra_comm_self()))))
+      , vector(new VectorType(Teuchos::rcp(
+          new MapType(0, 0, Utilities::Trilinos::tpetra_comm_self()))))
     {}
 
 
@@ -60,9 +56,15 @@ namespace LinearAlgebra
     template <typename Number>
     Vector<Number>::Vector(const Vector<Number> &V)
       : Subscriptor()
-      , vector(new Tpetra::Vector<Number, int, types::signed_global_dof_index>(
-          V.trilinos_vector(),
-          Teuchos::Copy))
+      , vector(new VectorType(V.trilinos_vector(), Teuchos::Copy))
+    {}
+
+
+
+    template <typename Number>
+    Vector<Number>::Vector(const Teuchos::RCP<VectorType> V)
+      : Subscriptor()
+      , vector(V)
     {}
 
 
@@ -71,9 +73,8 @@ namespace LinearAlgebra
     Vector<Number>::Vector(const IndexSet &parallel_partitioner,
                            const MPI_Comm  communicator)
       : Subscriptor()
-      , vector(new Tpetra::Vector<Number, int, types::signed_global_dof_index>(
-          Teuchos::rcp(new Tpetra::Map<int, types::signed_global_dof_index>(
-            parallel_partitioner.make_tpetra_map(communicator, false)))))
+      , vector(new VectorType(
+          parallel_partitioner.make_tpetra_map_rcp(communicator, false)))
     {}
 
 
@@ -84,13 +85,11 @@ namespace LinearAlgebra
                            const MPI_Comm  communicator,
                            const bool      omit_zeroing_entries)
     {
-      Tpetra::Map<int, types::signed_global_dof_index> input_map =
-        parallel_partitioner.make_tpetra_map(communicator, false);
-      if (vector->getMap()->isSameAs(input_map) == false)
-        vector = std::make_unique<
-          Tpetra::Vector<Number, int, types::signed_global_dof_index>>(
-          Teuchos::rcp(
-            new Tpetra::Map<int, types::signed_global_dof_index>(input_map)));
+      Teuchos::RCP<MapType> input_map =
+        parallel_partitioner.make_tpetra_map_rcp(communicator, false);
+
+      if (vector->getMap()->isSameAs(*input_map) == false)
+        vector = Teuchos::rcp(new VectorType(input_map));
       else if (omit_zeroing_entries == false)
         {
           vector->putScalar(0.);
@@ -101,8 +100,25 @@ namespace LinearAlgebra
 
     template <typename Number>
     void
-    Vector<Number>::reinit(const VectorSpaceVector<Number> &V,
-                           const bool omit_zeroing_entries)
+    Vector<Number>::reinit(const IndexSet &locally_owned_entries,
+                           const IndexSet &ghost_entries,
+                           const MPI_Comm  communicator)
+    {
+      IndexSet parallel_partitioner = locally_owned_entries;
+      parallel_partitioner.add_indices(ghost_entries);
+
+      Teuchos::RCP<MapType> input_map =
+        parallel_partitioner.make_tpetra_map_rcp(communicator, true);
+
+      vector = Teuchos::rcp(new VectorType(input_map));
+    }
+
+
+
+    template <typename Number>
+    void
+    Vector<Number>::reinit(const Vector<Number> &V,
+                           const bool            omit_zeroing_entries)
     {
       // Check that casting will work.
       Assert(dynamic_cast<const Vector<Number> *>(&V) != nullptr,
@@ -140,9 +156,7 @@ namespace LinearAlgebra
                                Tpetra::REPLACE);
             }
           else
-            vector = std::make_unique<
-              Tpetra::Vector<Number, int, types::signed_global_dof_index>>(
-              V.trilinos_vector());
+            vector = Teuchos::rcp(new VectorType(V.trilinos_vector()));
         }
 
       return *this;
@@ -169,12 +183,12 @@ namespace LinearAlgebra
     Vector<Number>::import_elements(
       const ReadWriteVector<Number> &V,
       VectorOperation::values        operation,
-      std::shared_ptr<const Utilities::MPI::CommunicationPatternBase>
-        communication_pattern)
+      const Teuchos::RCP<const Utilities::MPI::CommunicationPatternBase>
+        &communication_pattern)
     {
       // If no communication pattern is given, create one. Otherwise, use the
       // one given.
-      if (communication_pattern == nullptr)
+      if (communication_pattern.is_null())
         {
           // The first time import is called, a communication pattern is
           // created. Check if the communication pattern already exists and if
@@ -193,19 +207,20 @@ namespace LinearAlgebra
         }
       else
         {
-          tpetra_comm_pattern = std::dynamic_pointer_cast<
+          tpetra_comm_pattern = Teuchos::rcp_dynamic_cast<
             const TpetraWrappers::CommunicationPattern>(communication_pattern);
+
           AssertThrow(
-            tpetra_comm_pattern != nullptr,
+            tpetra_comm_pattern.is_null(),
             ExcMessage(
               std::string("The communication pattern is not of type ") +
               "LinearAlgebra::TpetraWrappers::CommunicationPattern."));
         }
 
-      Tpetra::Export<int, types::signed_global_dof_index> tpetra_export(
-        tpetra_comm_pattern->get_tpetra_export());
-      Tpetra::Vector<Number, int, types::signed_global_dof_index> source_vector(
-        tpetra_export.getSourceMap());
+      Teuchos::RCP<const Tpetra::Export<int, types::signed_global_dof_index>>
+        tpetra_export = tpetra_comm_pattern->get_tpetra_export_rcp();
+
+      VectorType source_vector(tpetra_export->getSourceMap());
 
       {
 #  if DEAL_II_TRILINOS_VERSION_GTE(13, 2, 0)
@@ -230,11 +245,37 @@ namespace LinearAlgebra
 #  endif
       }
       if (operation == VectorOperation::insert)
-        vector->doExport(source_vector, tpetra_export, Tpetra::REPLACE);
+        vector->doExport(source_vector, *tpetra_export, Tpetra::REPLACE);
       else if (operation == VectorOperation::add)
-        vector->doExport(source_vector, tpetra_export, Tpetra::ADD);
+        vector->doExport(source_vector, *tpetra_export, Tpetra::ADD);
       else
         AssertThrow(false, ExcNotImplemented());
+    }
+
+
+
+    template <typename Number>
+    void
+    Vector<Number>::import_elements(
+      const ReadWriteVector<Number> &V,
+      VectorOperation::values        operation,
+      const std::shared_ptr<const Utilities::MPI::CommunicationPatternBase>
+        &communication_pattern)
+    {
+      import_elements(V, operation);
+    }
+
+
+    template <typename Number>
+    void
+    Vector<Number>::import_elements(const ReadWriteVector<Number> &V,
+                                    VectorOperation::values        operation)
+    {
+      // Create an empty CommunicationPattern
+      const Teuchos::RCP<const Utilities::MPI::CommunicationPatternBase>
+        communication_pattern_empty;
+
+      import_elements(V, operation, communication_pattern_empty);
     }
 
 
@@ -642,6 +683,25 @@ namespace LinearAlgebra
 
 
     template <typename Number>
+    Teuchos::RCP<Tpetra::Vector<Number, int, types::signed_global_dof_index>>
+    Vector<Number>::trilinos_rcp()
+    {
+      return vector;
+    }
+
+
+
+    template <typename Number>
+    Teuchos::RCP<
+      const Tpetra::Vector<Number, int, types::signed_global_dof_index>>
+    Vector<Number>::trilinos_rcp() const
+    {
+      return vector.getConst();
+    }
+
+
+
+    template <typename Number>
     void
     Vector<Number>::print(std::ostream &     out,
                           const unsigned int precision,
@@ -685,6 +745,22 @@ namespace LinearAlgebra
     }
 
 
+    template <typename Number>
+    const MPI_Comm
+    Vector<Number>::mpi_comm() const
+    {
+      MPI_Comm out;
+#  ifdef DEAL_II_WITH_MPI
+      const Teuchos::MpiComm<int> *mpi_comm =
+        dynamic_cast<const Teuchos::MpiComm<int> *>(
+          vector->getMap()->getComm().get());
+      out = *mpi_comm->getRawMpiComm();
+#  else
+      out            = MPI_COMM_SELF;
+#  endif
+      return out;
+    }
+
 
     template <typename Number>
     std::size_t
@@ -703,9 +779,10 @@ namespace LinearAlgebra
                                                const MPI_Comm  mpi_comm)
     {
       source_stored_elements = source_index_set;
+
       tpetra_comm_pattern =
-        std::make_shared<TpetraWrappers::CommunicationPattern>(
-          locally_owned_elements(), source_index_set, mpi_comm);
+        Teuchos::rcp(new TpetraWrappers::CommunicationPattern(
+          locally_owned_elements(), source_index_set, mpi_comm));
     }
   } // namespace TpetraWrappers
 } // namespace LinearAlgebra
