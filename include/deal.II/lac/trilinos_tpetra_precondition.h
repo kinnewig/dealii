@@ -18,78 +18,77 @@
 
 #include <deal.II/base/config.h>
 
-#ifdef DEAL_II_TRILINOS_WITH_TPETRA
+#  ifdef DEAL_II_TRILINOS_WITH_TPETRA
 
 #  include <deal.II/base/subscriptor.h>
-
 #  include <deal.II/lac/trilinos_tpetra_sparse_matrix.h>
 
 #  include <Teuchos_ParameterList.hpp>
 #  include <Tpetra_Operator.hpp>
 
 // Belos
-#  include <BelosLinearProblem.hpp>
-#  include <BelosSolverFactory.hpp>
-#  include <BelosTpetraAdapter.hpp>
-
-#  include "BelosBlockCGSolMgr.hpp"
-#  include "BelosBlockGmresSolMgr.hpp"
-#  include "BelosPseudoBlockCGSolMgr.hpp"
-#  include "BelosPseudoBlockGmresSolMgr.hpp"
+#include <BelosLinearProblem.hpp>
+#include "BelosBlockGmresSolMgr.hpp"
+#include "BelosPseudoBlockGmresSolMgr.hpp"
+#include "BelosBlockCGSolMgr.hpp"
+#include "BelosPseudoBlockCGSolMgr.hpp"
+#include <BelosSolverFactory.hpp>
+#include <BelosTpetraAdapter.hpp>
 
 // Galeri::Xpetra
-#  include "Galeri_XpetraMaps.hpp"
-#  include "Galeri_XpetraMatrixTypes.hpp"
-#  include "Galeri_XpetraParameters.hpp"
-#  include "Galeri_XpetraProblemFactory.hpp"
-#  include "Galeri_XpetraUtils.hpp"
+#include "Galeri_XpetraProblemFactory.hpp"
+#include "Galeri_XpetraMatrixTypes.hpp"
+#include "Galeri_XpetraParameters.hpp"
+#include "Galeri_XpetraUtils.hpp"
+#include "Galeri_XpetraMaps.hpp"
 
 // Teuchos
-#  include <Teuchos_Array.hpp>
-#  include <Teuchos_CommandLineProcessor.hpp>
-#  include <Teuchos_RCP.hpp>
-#  include <Teuchos_ScalarTraits.hpp>
-#  include <Teuchos_StackedTimer.hpp>
-#  include <Teuchos_Tuple.hpp>
+#include <Teuchos_Array.hpp>
+#include <Teuchos_CommandLineProcessor.hpp>
+#include <Teuchos_RCP.hpp>
+#include <Teuchos_ScalarTraits.hpp>
+#include <Teuchos_StackedTimer.hpp>
+#include <Teuchos_Tuple.hpp>
 
 // Thyra
-#  include <Thyra_LinearOpWithSolveBase.hpp>
-#  include <Thyra_LinearOpWithSolveFactoryHelpers.hpp>
-#  include <Thyra_SolveSupportTypes.hpp>
-#  include <Thyra_TpetraLinearOp.hpp>
-#  include <Thyra_TpetraMultiVector.hpp>
-#  include <Thyra_TpetraThyraWrappers.hpp>
-#  include <Thyra_TpetraVector.hpp>
-#  include <Thyra_VectorBase.hpp>
-#  include <Thyra_VectorStdOps.hpp>
-#  ifdef HAVE_SHYLU_DDFROscalar_typeH_EPETRA
-#    include <Thyra_EpetraLinearOp.hpp>
-#  endif
-#  include <Thyra_VectorSpaceBase_decl.hpp>
-#  include <Thyra_VectorSpaceBase_def.hpp>
+#include <Thyra_LinearOpWithSolveBase.hpp>
+#include <Thyra_VectorBase.hpp>
+#include <Thyra_SolveSupportTypes.hpp>
+#include <Thyra_LinearOpWithSolveBase.hpp>
+#include <Thyra_LinearOpWithSolveFactoryHelpers.hpp>
+#include <Thyra_TpetraLinearOp.hpp>
+#include <Thyra_TpetraMultiVector.hpp>
+#include <Thyra_TpetraVector.hpp>
+#include <Thyra_TpetraThyraWrappers.hpp>
+#include <Thyra_VectorBase.hpp>
+#include <Thyra_VectorStdOps.hpp>
+#ifdef HAVE_SHYLU_DDFROscalar_typeH_EPETRA
+#include <Thyra_EpetraLinearOp.hpp>
+#endif
+#include <Thyra_VectorSpaceBase_def.hpp>
+#include <Thyra_VectorSpaceBase_decl.hpp>
 
 // Xpetra
-#  include <Xpetra_CrsMatrixWrap.hpp>
-#  include <Xpetra_DefaultPlatform.hpp>
-#  include <Xpetra_Map.hpp>
-#  include <Xpetra_Parameters.hpp>
+#include <Xpetra_Map.hpp>
+#include <Xpetra_CrsMatrixWrap.hpp>
+#include <Xpetra_DefaultPlatform.hpp>
+#include <Xpetra_Parameters.hpp>
 
 // TODO Check DEAL_II_WITH_FROSCH
 // FROSch
-#  include <FROSch_OneLevelPreconditioner_def.hpp>
-#  include <FROSch_SchwarzPreconditioners_fwd.hpp>
-#  include <FROSch_Tools_def.hpp>
-#  include <ShyLU_DDFROSch_config.h>
+#include <ShyLU_DDFROSch_config.h>
+#include <FROSch_Tools_def.hpp>
+#include <FROSch_SchwarzPreconditioners_fwd.hpp>
+#include <FROSch_OneLevelPreconditioner_def.hpp>
 
 DEAL_II_NAMESPACE_OPEN
 
+/**
+ * @addtogroup TpetraWrappers
+ * @{
+ */
 namespace LinearAlgebra
 {
-
-  /**
-   * @addtogroup TpetraWrappers
-   * @{
-   */
   namespace TpetraWrappers
   {
     // forward declarations
@@ -102,27 +101,20 @@ namespace LinearAlgebra
 
     class SparsityPattern;
 
-    template <typename Number,
-              typename Node,
-              typename LinearOperator,
-              typename MultiVector>
+    template <typename Number, typename Node, typename LinearOperator, typename MultiVector>
     class SolverBase;
 #  endif
 
     /**
-     * The base class for all preconditioners based on Trilinos Tpetra sparse
-     * matrices.
+     * The base class for all preconditioners based on Trilinos Tpetra sparse matrices.
      *
      * @ingroup TpetraWrappers
      * @ingroup Preconditioners
      */
-    template <
-      typename Number,
-      typename Node = Tpetra::KokkosClassic::DefaultNode::DefaultNodeType,
-      typename LinearOperator = Tpetra::
-        Operator<Number, int, dealii::types::signed_global_dof_index, Node>,
-      typename MultiVector = Tpetra::
-        MultiVector<Number, int, dealii::types::signed_global_dof_index, Node>>
+    template <typename Number,
+              typename Node           = Tpetra::KokkosClassic::DefaultNode::DefaultNodeType,
+              typename LinearOperator = Tpetra::Operator<Number, int, dealii::types::signed_global_dof_index, Node>,
+              typename MultiVector    = Tpetra::MultiVector<Number, int, dealii::types::signed_global_dof_index, Node>>
     class PreconditionBase : public Subscriptor
     {
     public:
@@ -163,31 +155,30 @@ namespace LinearAlgebra
        * Calling this function from an uninitialized object will cause an
        * exception.
        */
-      // TODO: is it a good idea to return the object itself instead of a RCP?
+       // TODO: is it a good idea to return the object itself instead of a RCP?
       LinearOperator &
       trilinos_operator() const;
 
       /**
        * Return a Teuchos::RCP to the underlying Tpetra::Operator
        */
-      Teuchos::RCP<LinearOperator>
-      trilinos_rcp() const;
+       Teuchos::RCP<LinearOperator>
+       trilinos_rcp() const;
       /** @} */
 
 
       /**
-       * @addtogroup Exceptions
+     * @addtogroup Exceptions
        */
       /** @{ */
       /**
-       * Exception.
+     * Exception.
        */
-      DeclException1(
-        ExcNonMatchingMaps,
-        std::string,
-        << "The sparse matrix the preconditioner is based on "
-        << "uses a map that is not compatible to the one in vector " << arg1
-        << ". Check preconditioner and matrix setup.");
+      DeclException1(ExcNonMatchingMaps,
+                     std::string,
+                     << "The sparse matrix the preconditioner is based on "
+                       << "uses a map that is not compatible to the one in vector "
+                       << arg1 << ". Check preconditioner and matrix setup.");
       /** @} */
 
       friend class SolverBase<Number, Node, LinearOperator, MultiVector>;
@@ -200,29 +191,27 @@ namespace LinearAlgebra
       Teuchos::RCP<LinearOperator> preconditioner;
 
     }; // class PreconditionBase
-
-
-
+       
+      
+     
     /**
-     * TODO: Description
-     */
-    template <typename Number,
-              typename Node =
-                Tpetra::KokkosClassic::DefaultNode::DefaultNodeType>
+    * TODO: Description
+    */
+    template <typename Number, typename Node = Tpetra::KokkosClassic::DefaultNode::DefaultNodeType>
     class PreconditionRILUK : public PreconditionBase<Number, Node>
     {
-    public:
-      using PreconditionBase<Number, Node>::preconditioner_type;
-      using PreconditionBase<Number, Node>::parameter_list;
+      public:
+        using PreconditionBase<Number, Node>::preconditioner_type;
+        using PreconditionBase<Number, Node>::parameter_list;
 
-      using PreconditionBase<Number, Node>::preconditioner;
-      /**
-       * Take the sparse matrix the preconditioner object should be built of,
-       * and additional flags (damping parameter, overlap in parallel
-       * computations, etc.) if there are any.
-       */
-      void
-      initialize(const SparseMatrix<double> &matrix);
+        using PreconditionBase<Number, Node>::preconditioner;
+        /**
+         * Take the sparse matrix the preconditioner object should be built of,
+         * and additional flags (damping parameter, overlap in parallel
+         * computations, etc.) if there are any.
+         */
+        void
+        initialize(const SparseMatrix<double> &matrix);
     }; // class PreconditionIULT
 
 
@@ -230,99 +219,57 @@ namespace LinearAlgebra
     /**
      * TODO: Description
      */
-    template <typename Number,
-              typename Node =
-                Tpetra::KokkosClassic::DefaultNode::DefaultNodeType>
-    class PreconditionFROSch
-      : public PreconditionBase<
-          Number,
-          Node,
-          Belos::OperatorT<
-            Xpetra::MultiVector<Number,
-                                int,
-                                dealii::types::signed_global_dof_index,
-                                Node>>,
-          Xpetra::MultiVector<Number,
-                              int,
-                              dealii::types::signed_global_dof_index,
-                              Node>>
+    template <typename Number, typename Node = Tpetra::KokkosClassic::DefaultNode::DefaultNodeType>
+    class PreconditionFROSch : public PreconditionBase<
+                                        Number,
+                                        Node,
+                                        Belos::OperatorT<Xpetra::MultiVector<Number, int, dealii::types::signed_global_dof_index, Node>>,
+                                        Xpetra::MultiVector<Number, int, dealii::types::signed_global_dof_index, Node>>
     {
-    public:
+     public:
+
       /**
        * Shorthand for the OneLevelPrecondioner of FROSch
        */
       using OneLevelPreconditionerType =
-        FROSch::OneLevelPreconditioner<Number,
-                                       int,
-                                       dealii::types::signed_global_dof_index,
-                                       Node>;
+         FROSch::OneLevelPreconditioner<Number, int, dealii::types::signed_global_dof_index, Node>;
+         //FROSch::TwoLevelPreconditioner<Number, int, dealii::types::signed_global_dof_index, Node>;
 
-      using OperatorType = Belos::OperatorT<
-        Xpetra::MultiVector<Number,
-                            int,
-                            dealii::types::signed_global_dof_index,
-                            Node>>;
+      using MultiVectorType =
+        Xpetra::MultiVector<Number, int, dealii::types::signed_global_dof_index, Node>;
 
-      using MultiVectorType = Xpetra::
-        MultiVector<Number, int, dealii::types::signed_global_dof_index, Node>;
+      using LinearOperatorType =
+        Belos::OperatorT<MultiVectorType>;
 
-      /**
-       * Typdef for Xpetra::XpetraOp
-       */
-      using XpetraOpType = Belos::
-        XpetraOp<Number, int, dealii::types::signed_global_dof_index, Node>;
+      using XpetraOpType =
+        Belos::XpetraOp<Number, int, dealii::types::signed_global_dof_index, Node>;
 
-      /**
-       * Typedef for Xpetra::Matrix
-       * Xpetra::Matrix does not correspond to any class in Tpetra
-       */
-      using XpetraMatrixType = Xpetra::
-        Matrix<Number, int, dealii::types::signed_global_dof_index, Node>;
+      using XpetraMatrixType =
+        Xpetra::Matrix<Number, int, dealii::types::signed_global_dof_index, Node>;
 
-      /**
-       * Typedef for Xpetra::CrsMatrix
-       */
-      using XpetraCrsMatrixType = Xpetra::
-        CrsMatrix<Number, int, dealii::types::signed_global_dof_index, Node>;
+      using XpetraCrsMatrixType =
+        Xpetra::CrsMatrix<Number, int, dealii::types::signed_global_dof_index, Node>;
 
-      /**
-       * Typedef for Xpetra::TpetraCrsMatrix
-       */
       using XpetraTpetraCrsMatrixType =
-        Xpetra::TpetraCrsMatrix<Number,
-                                int,
-                                dealii::types::signed_global_dof_index,
-                                Node>;
+        Xpetra::TpetraCrsMatrix<Number, int, dealii::types::signed_global_dof_index, Node>;
 
-      /**
-       * Typedef for Xpetra::CrsMatrixWrap
-       */
       using XpetraCrsMatrixWrapType =
-        Xpetra::CrsMatrixWrap<Number,
-                              int,
-                              dealii::types::signed_global_dof_index,
-                              Node>;
+        Xpetra::CrsMatrixWrap<Number, int, dealii::types::signed_global_dof_index, Node>;
 
 
-      using PreconditionBase<Number, Node, OperatorType, MultiVectorType>::
-        preconditioner_type;
-      using PreconditionBase<Number, Node, OperatorType, MultiVectorType>::
-        parameter_list;
-      using PreconditionBase<Number, Node, OperatorType, MultiVectorType>::
-        preconditioner;
+      using PreconditionBase<Number, Node, LinearOperatorType, MultiVectorType>::preconditioner_type;
+      using PreconditionBase<Number, Node, LinearOperatorType, MultiVectorType>::parameter_list;
+      using PreconditionBase<Number, Node, LinearOperatorType, MultiVectorType>::preconditioner;
 
-      void
-      initialize(const SparseMatrix<Number> &matrix);
+      void initialize(const SparseMatrix<Number> &matrix);
     };
 
 
-  } // namespace TpetraWrappers
-  /** @} */
-
+  } // namespace TpetraWrapper
 } // namespace LinearAlgebra
 
 DEAL_II_NAMESPACE_CLOSE
 
-#endif // DEAL_II_TRILINOS_WITH_TPETRA
+#  endif // DEAL_II_TRILINOS_WITH_TPETRA
 
 #endif // dealii_trilinos_tpetra_precondition_h
