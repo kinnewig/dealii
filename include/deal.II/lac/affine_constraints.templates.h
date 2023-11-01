@@ -2652,6 +2652,30 @@ namespace internal
   }
 #endif
 
+#ifdef DEAL_II_TRILINOS_WITH_TPETRA
+  //TODO: template
+  inline void
+  import_vector_with_ghost_elements(
+    const LinearAlgebra::TpetraWrappers::Vector<double> &vec,
+    const IndexSet & /*locally_owned_elements*/,
+    const IndexSet                &needed_elements,
+    LinearAlgebra::TpetraWrappers::Vector<double> &output,
+    const std::bool_constant<false> /*is_block_vector*/)
+  {
+    Assert(!vec.has_ghost_elements(), ExcGhostsPresent());
+#  ifdef DEAL_II_WITH_MPI
+    const Teuchos::MpiComm<int> *mpi_comm =
+      dynamic_cast<const Teuchos::MpiComm<int> *>(
+        vec.trilinos_rcp()->getMap()->getComm().get());
+
+    output.reinit(needed_elements, *(mpi_comm->getRawMpiComm()));
+#  else
+    output.reinit(needed_elements, MPI_COMM_SELF);
+#  endif
+    output = vec;
+  }
+#endif // DEAL_II_TRILINOS_WITH_TPETRA
+
 #ifdef DEAL_II_WITH_PETSC
   inline void
   import_vector_with_ghost_elements(
