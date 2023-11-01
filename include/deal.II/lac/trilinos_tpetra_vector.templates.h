@@ -170,26 +170,31 @@ namespace LinearAlgebra
     Vector<Number> &
     Vector<Number>::operator=(const Vector<Number> &V)
     {
-      // Distinguish three cases:
-      //  - First case: both vectors have the same layout.
-      //  - Second case: both vectors have the same size but different layout.
-      //  - Third case: the vectors have different size.
-      if (vector->getMap()->isSameAs(*(V.trilinos_vector().getMap())))
-        *vector = V.trilinos_vector();
-      else
-        {
-          if (size() == V.size())
-            {
-              Tpetra::Import<int, types::signed_global_dof_index> data_exchange(
-                vector->getMap(), V.trilinos_vector().getMap());
 
-              vector->doImport(V.trilinos_vector(),
-                               data_exchange,
-                               Tpetra::REPLACE);
-            }
-          else
-            vector = Teuchos::rcp(new VectorType(V.trilinos_vector()));
-        }
+      vector = V.vector;
+      source_stored_elements = V.source_stored_elements;
+      tpetra_comm_pattern = V.tpetra_comm_pattern;
+
+      //// Distinguish three cases:
+      ////  - First case: both vectors have the same layout.
+      ////  - Second case: both vectors have the same size but different layout.
+      ////  - Third case: the vectors have different size.
+      //if (vector->getMap()->isSameAs(*(V.trilinos_vector().getMap())))
+      //  *vector = V.trilinos_vector();
+      //else
+      //  {
+      //    if (size() == V.size())
+      //      {
+      //        Tpetra::Import<int, types::signed_global_dof_index> data_exchange(
+      //          vector->getMap(), V.trilinos_vector().getMap());
+
+      //        vector->doImport(V.trilinos_vector(),
+      //                         data_exchange,
+      //                         Tpetra::REPLACE);
+      //      }
+      //    else
+      //      vector = Teuchos::rcp(new VectorType(V.trilinos_vector()));
+      //  }
 
       return *this;
     }
@@ -645,6 +650,7 @@ namespace LinearAlgebra
     template <typename Number>
     void
     Vector<Number>::compress(const VectorOperation::values /*operation*/)
+
     {}
 
 
