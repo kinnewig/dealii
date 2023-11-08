@@ -195,6 +195,10 @@ SPARSE_MATRICES := { SparseMatrix<double>;
                      BlockSparseMatrix<double>;
                      BlockSparseMatrix<float>;
                      @DEAL_II_EXPAND_TRILINOS_SPARSE_MATRICES@;
+                     @DEAL_II_EXPAND_TPETRA_SPARSE_MATRIX_DOUBLE@;
+                     @DEAL_II_EXPAND_TPETRA_SPARSE_MATRIX_FLOAT@;
+                     @DEAL_II_EXPAND_TPETRA_SPARSE_MATRIX_COMPLEX_DOUBLE@;
+                     @DEAL_II_EXPAND_TPETRA_SPARSE_MATRIX_COMPLEX_FLOAT@;
                      @DEAL_II_EXPAND_PETSC_SPARSE_MATRICES@;
                    }
 

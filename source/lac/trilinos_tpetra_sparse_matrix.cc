@@ -27,6 +27,19 @@ namespace LinearAlgebra
 {
   namespace TpetraWrappers
   {
+#  ifdef HAVE_TPETRA_INST_FLOAT
+    template class SparseMatrix<float>;
+
+    template void
+    SparseMatrix<float>::reinit(
+      const IndexSet                       &row_parallel_partitioning,
+      const IndexSet                       &col_parallel_partitioning,
+      const dealii::DynamicSparsityPattern &sparsity_pattern,
+      const MPI_Comm                        communicator,
+      const bool                            exchange_data);
+#  endif
+
+#  ifdef HAVE_TPETRA_INST_DOUBLE
     template class SparseMatrix<double>;
 
     template void
@@ -36,6 +49,37 @@ namespace LinearAlgebra
       const dealii::DynamicSparsityPattern &sparsity_pattern,
       const MPI_Comm                        communicator,
       const bool                            exchange_data);
+#  endif
+#  ifdef DEAL_II_WITH_COMPLEX_VALUES
+
+#    ifdef HAVE_TPETRA_INST_COMPLEX_FLOAT
+    template class SparseMatrix<std::complex<float>>;
+
+    template void
+    SparseMatrix<std::complex<float>>::reinit(
+      const IndexSet                       &row_parallel_partitioning,
+      const IndexSet                       &col_parallel_partitioning,
+      const dealii::DynamicSparsityPattern &sparsity_pattern,
+      const MPI_Comm                        communicator,
+      const bool                            exchange_data);
+#    endif
+
+
+#    ifdef HAVE_TPETRA_INST_COMPLEX_DOUBLE
+    template class SparseMatrix<std::complex<double>>;
+
+    template void
+    SparseMatrix<std::complex<double>>::reinit(
+      const IndexSet                       &row_parallel_partitioning,
+      const IndexSet                       &col_parallel_partitioning,
+      const dealii::DynamicSparsityPattern &sparsity_pattern,
+      const MPI_Comm                        communicator,
+      const bool                            exchange_data);
+#    endif
+
+
+#  endif
+
 
   } // namespace TpetraWrappers
 } // namespace LinearAlgebra

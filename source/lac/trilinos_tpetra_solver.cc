@@ -19,11 +19,11 @@
 
 #  include <deal.II/base/conditional_ostream.h>
 
+#  include <deal.II/lac/affine_constraints.h>
 #  include <deal.II/lac/trilinos_tpetra_solver.h>
 #  include <deal.II/lac/trilinos_tpetra_vector.h>
-#  include <deal.II/lac/affine_constraints.h>
 
-#include <Tpetra_Operator.hpp>
+#  include <Tpetra_Operator.hpp>
 
 #  include <cmath>
 #  include <limits>
@@ -36,7 +36,10 @@ namespace LinearAlgebra
   namespace TpetraWrappers
   {
 
-    template <typename Number, typename Node, typename LinearOperator, typename MultiVector>
+    template <typename Number,
+              typename Node,
+              typename LinearOperator,
+              typename MultiVector>
     SolverBase<Number, Node, LinearOperator, MultiVector>::SolverBase(
       SolverControl                       &cn,
       Teuchos::RCP<Teuchos::ParameterList> pl)
@@ -46,17 +49,26 @@ namespace LinearAlgebra
 
 
 
-    template <typename Number, typename Node, typename LinearOperator, typename MultiVector>
-    SolverControl &SolverBase<Number, Node, LinearOperator, MultiVector>::control() const
+    template <typename Number,
+              typename Node,
+              typename LinearOperator,
+              typename MultiVector>
+    SolverControl &
+    SolverBase<Number, Node, LinearOperator, MultiVector>::control() const
     {
       return solver_control;
     }
 
 
 
-    template <typename Number, typename Node, typename LinearOperator, typename MultiVector>
+    template <typename Number,
+              typename Node,
+              typename LinearOperator,
+              typename MultiVector>
     template <typename Preconditioner>
-    void SolverBase<Number, Node, LinearOperator, MultiVector>::do_solve(const Preconditioner &preconditioner)
+    void
+    SolverBase<Number, Node, LinearOperator, MultiVector>::do_solve(
+      const Preconditioner &preconditioner)
     {
       linear_problem->setRightPrec(preconditioner.trilinos_rcp());
       linear_problem->setProblem();
@@ -76,7 +88,7 @@ namespace LinearAlgebra
 
     template <typename Number, typename Node>
     SolverTpetra<Number, Node>::SolverTpetra(
-      dealii::SolverControl &cn,
+      dealii::SolverControl                     &cn,
       const Teuchos::RCP<Teuchos::ParameterList> pm)
       : SolverBase<Number, Node, LinearOperatorType, MultiVectorType>(cn, pm)
     {}
@@ -84,33 +96,32 @@ namespace LinearAlgebra
 
 
     template <typename Number, typename Node>
-    void SolverTpetra<Number, Node>::solve(
+    void
+    SolverTpetra<Number, Node>::solve(
       const SparseMatrix<Number> &A,
       Vector<Number>             &x,
       Vector<Number>             &b,
-      const PreconditionBase<Number, Node, LinearOperatorType, MultiVectorType> &preconditioner)
+      const PreconditionBase<Number, Node, LinearOperatorType, MultiVectorType>
+        &preconditioner)
     {
       // TODO: BEGIN Parameterlist:
       //       We set the parameter for the preconditioner here
       // Make an empty new parameter list.
       parameter_list = Teuchos::parameterList();
 
-      parameter_list->set ("Num Blocks", 40);
-      parameter_list->set ("Maximum Iterations", 400);
-      parameter_list->set ("Convergence Tolerance", 1.0e-8);
+      parameter_list->set("Num Blocks", 40);
+      parameter_list->set("Maximum Iterations", 400);
+      parameter_list->set("Convergence Tolerance", 1.0e-8);
       // TODO: END ParameterList
 
       // TODO: make the solver user selectable
       // the list of solver parameters created above.
       Belos::SolverFactory<Number, MultiVectorType, LinearOperatorType> factory;
-      solver = factory.create ("GMRES", parameter_list);
+      solver = factory.create("GMRES", parameter_list);
 
       // Create a LinearProblem struct with the problem to solve.
       linear_problem = Teuchos::rcp(
-        new Belos::LinearProblem<
-          Number,
-          MultiVectorType,
-          LinearOperatorType>(
+        new Belos::LinearProblem<Number, MultiVectorType, LinearOperatorType>(
           A.trilinos_rcp(), x.trilinos_rcp(), b.trilinos_rcp()));
 
       do_solve(preconditioner);
@@ -120,32 +131,34 @@ namespace LinearAlgebra
 
     template <typename Number, typename Node>
     SolverXpetra<Number, Node>::SolverXpetra(
-      dealii::SolverControl &cn,
+      dealii::SolverControl                     &cn,
       const Teuchos::RCP<Teuchos::ParameterList> pm)
       : SolverBase<Number, Node, LinearOperatorType, MultiVectorType>(cn, pm)
     {}
 
 
     template <typename Number, typename Node>
-    void SolverXpetra<Number, Node>::solve(
+    void
+    SolverXpetra<Number, Node>::solve(
       const SparseMatrix<Number> &A,
       Vector<Number>             &x,
       Vector<Number>             &b,
-      const PreconditionBase<Number, Node, LinearOperatorType, MultiVectorType> &preconditioner)
+      const PreconditionBase<Number, Node, LinearOperatorType, MultiVectorType>
+        &preconditioner)
     {
       // TODO: BEGIN Parameterlist:
       //       We set the parameter for the preconditioner here
       // Make an empty new parameter list.
       parameter_list = Teuchos::parameterList();
 
-      //parameter_list->set ("Num Blocks", 40);
-      //parameter_list->set ("Maximum Iterations", 400);
-      //parameter_list->set ("Convergence Tolerance", 1.0e-8);
-      // TODO: END ParameterList
+      // parameter_list->set ("Num Blocks", 40);
+      // parameter_list->set ("Maximum Iterations", 400);
+      // parameter_list->set ("Convergence Tolerance", 1.0e-8);
+      //  TODO: END ParameterList
 
       // TODO: make the solver user selectable
       Belos::SolverFactory<Number, MultiVectorType, LinearOperatorType> factory;
-      solver = factory.create ("CG", parameter_list);
+      solver = factory.create("CG", parameter_list);
 
       // Cast x and b to Xpetra
       Teuchos::RCP<MultiVectorType> xpetra_x =
@@ -158,46 +171,31 @@ namespace LinearAlgebra
         Teuchos::rcp(new XpetraTpetraCrsMatrixType(A.trilinos_rcp()));
 
       // Next we need to create a Belos::OperatorT obeject from xpetra_A
-      Teuchos::RCP<XpetraMatrixType>   xpetra_matrix_A
-        = Teuchos::rcp(new XpetraCrsMatrixWrapType(xpetra_A));
-      Teuchos::RCP<LinearOperatorType> belos_A
-        = Teuchos::rcp(new XpetraOpType(xpetra_matrix_A));
+      Teuchos::RCP<XpetraMatrixType> xpetra_matrix_A =
+        Teuchos::rcp(new XpetraCrsMatrixWrapType(xpetra_A));
+      Teuchos::RCP<LinearOperatorType> belos_A =
+        Teuchos::rcp(new XpetraOpType(xpetra_matrix_A));
 
       // Create a LinearProblem struct with the problem to solve.
       linear_problem = Teuchos::rcp(
-        new Belos::LinearProblem<
-          Number,
-          MultiVectorType,
-          LinearOperatorType>(
+        new Belos::LinearProblem<Number, MultiVectorType, LinearOperatorType>(
           belos_A, xpetra_x, xpetra_b));
 
       linear_problem->setProblem(xpetra_x, xpetra_b);
       do_solve(preconditioner);
 
-      //Cast the result back to Vector
-      Teuchos::RCP<XpetraTpetraMultiVectorType> xpetra_tpetra_x
-        = Teuchos::rcp(new XpetraTpetraMultiVectorType(*xpetra_x));
+      // Cast the result back to Vector
+      Teuchos::RCP<XpetraTpetraMultiVectorType> xpetra_tpetra_x =
+        Teuchos::rcp(new XpetraTpetraMultiVectorType(*xpetra_x));
 
       x = Vector(Teuchos::rcp(
-        new VectorType(*(xpetra_tpetra_x->getTpetra_MultiVector()), 0)) );
+        new VectorType(*(xpetra_tpetra_x->getTpetra_MultiVector()), 0)));
     }
 
-  } // namespace TrilinosWrappers
-} // namespace LinearAlgebra
-
-
-// explicit instantiations
-// TODO: put these instantiations into generic file
-namespace LinearAlgebra
-{
-  namespace TpetraWrappers
-  {
-    template class SolverTpetra<double, Tpetra::KokkosClassic::DefaultNode::DefaultNodeType>;
-
-    template class SolverXpetra<double, Tpetra::KokkosClassic::DefaultNode::DefaultNodeType>;
-
+#  ifndef DOXYGEN
+#    include "trilinos_tpetra_solver.inst"
+#  endif
   } // namespace TpetraWrappers
-
 } // namespace LinearAlgebra
 
 DEAL_II_NAMESPACE_CLOSE

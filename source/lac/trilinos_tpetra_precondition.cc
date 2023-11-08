@@ -18,6 +18,7 @@
 #ifdef DEAL_II_TRILINOS_WITH_TPETRA
 
 #  include <deal.II/lac/trilinos_tpetra_precondition.h>
+
 #  include <Ifpack2_Factory.hpp>
 
 DEAL_II_NAMESPACE_OPEN
@@ -28,17 +29,26 @@ namespace LinearAlgebra
   namespace TpetraWrappers
   {
     // PreconditionBase
-    template <typename Number, typename Node, typename LinearOperator, typename MultiVector>
-    PreconditionBase<Number, Node, LinearOperator, MultiVector>::PreconditionBase(){
+    template <typename Number,
+              typename Node,
+              typename LinearOperator,
+              typename MultiVector>
+    PreconditionBase<Number, Node, LinearOperator, MultiVector>::
+      PreconditionBase()
+    {
       // Make an empty new parameter list.
       parameter_list = Teuchos::parameterList();
     };
 
 
 
-    template <typename Number, typename Node, typename LinearOperator, typename MultiVector>
+    template <typename Number,
+              typename Node,
+              typename LinearOperator,
+              typename MultiVector>
     LinearOperator &
-    PreconditionBase<Number, Node, LinearOperator, MultiVector>::trilinos_operator() const
+    PreconditionBase<Number, Node, LinearOperator, MultiVector>::
+      trilinos_operator() const
     {
       AssertThrow(!preconditioner.is_null(),
                   ExcMessage("Trying to dereference a null pointer."));
@@ -47,9 +57,13 @@ namespace LinearAlgebra
 
 
 
-    template <typename Number, typename Node, typename LinearOperator, typename MultiVector>
+    template <typename Number,
+              typename Node,
+              typename LinearOperator,
+              typename MultiVector>
     Teuchos::RCP<LinearOperator>
-    PreconditionBase<Number, Node, LinearOperator, MultiVector>::trilinos_rcp() const
+    PreconditionBase<Number, Node, LinearOperator, MultiVector>::trilinos_rcp()
+      const
     {
       AssertThrow(!preconditioner.is_null(),
                   ExcMessage("Trying to dereference a null pointer."));
@@ -60,7 +74,8 @@ namespace LinearAlgebra
 
     // PreconditionILUT
     template <typename Number, typename Node>
-    void PreconditionRILUK<Number, Node>::initialize(
+    void
+    PreconditionRILUK<Number, Node>::initialize(
       const SparseMatrix<double> &matrix)
     {
       // release memory before reallocation
@@ -76,20 +91,18 @@ namespace LinearAlgebra
       // Make an empty new parameter list.
       parameter_list = Teuchos::parameterList();
 
-      const double fillLevel = 2.0;
-      const double dropTol = 0.0;
+      const double fillLevel    = 2.0;
+      const double dropTol      = 0.0;
       const double absThreshold = 0.1;
 
 
-      parameter_list->set ("fact: ilut level-of-fill", fillLevel);
-      parameter_list->set ("fact: drop tolerance", dropTol);
-      parameter_list->set ("fact: absolute threshold", absThreshold);
+      parameter_list->set("fact: ilut level-of-fill", fillLevel);
+      parameter_list->set("fact: drop tolerance", dropTol);
+      parameter_list->set("fact: absolute threshold", absThreshold);
       // TODO: END ParameterList
 
       // Create the Ifpack2 preconditioner
-      Teuchos::RCP<
-        Ifpack2::Preconditioner<Number, int, long long int>>
-        prec;
+      Teuchos::RCP<Ifpack2::Preconditioner<Number, int, long long int>> prec;
 
       Ifpack2::Factory factory;
 
@@ -112,7 +125,8 @@ namespace LinearAlgebra
     // FROSch
     template <typename Number, typename Node>
     void
-    PreconditionFROSch<Number, Node>::initialize(const SparseMatrix<Number> &matrix)
+    PreconditionFROSch<Number, Node>::initialize(
+      const SparseMatrix<Number> &matrix)
     {
       // TODO: ParameterList
       // Make an empty new parameter list.
@@ -120,13 +134,13 @@ namespace LinearAlgebra
 
       // create a Xpetra::CrsMatrix Object,
       // which is used to create the Xpetra::Matrix
-      Teuchos::RCP<XpetraCrsMatrixType> xpetra_crsmatrix
-        = Teuchos::rcp(new XpetraTpetraCrsMatrixType(matrix.trilinos_rcp()));
+      Teuchos::RCP<XpetraCrsMatrixType> xpetra_crsmatrix =
+        Teuchos::rcp(new XpetraTpetraCrsMatrixType(matrix.trilinos_rcp()));
 
       // Create from the above defined Xpetra::CrsMatrix
       // an Xpetra::Matrix
-      Teuchos::RCP<XpetraMatrixType> xpetra_matrix
-        = Teuchos::rcp(new XpetraCrsMatrixWrapType(xpetra_crsmatrix));
+      Teuchos::RCP<XpetraMatrixType> xpetra_matrix =
+        Teuchos::rcp(new XpetraCrsMatrixWrapType(xpetra_crsmatrix));
 
       // The one-level Schwarz preconditioner object
       Teuchos::RCP<OneLevelPreconditionerType> prec(
@@ -141,25 +155,12 @@ namespace LinearAlgebra
       preconditioner = rcp(new XpetraOpType(prec));
     }
 
-  } // namespace TpetraWrapper
-}// namespace LinearAlgebra
+#  ifndef DOXYGEN
+    include "trilinos_tpetra_precondition.inst"
+#  endif
 
-namespace  LinearAlgebra
-  {
-  namespace TpetraWrappers
-    {
-      template class PreconditionBase<double>;
-      template class PreconditionRILUK<double>;
-
-      template class PreconditionBase<
-        double,
-        Tpetra::KokkosClassic::DefaultNode::DefaultNodeType,
-        Belos::OperatorT<Xpetra::MultiVector<double, int, dealii::types::signed_global_dof_index>>,
-        Xpetra::MultiVector<double, int, dealii::types::signed_global_dof_index>>;
-      template class PreconditionFROSch<double>;
-    } // namespace TpetraWrapper
-  }// namespace LinearAlgebra
-
+  } // namespace TpetraWrappers
+} // namespace LinearAlgebra
 
 DEAL_II_NAMESPACE_CLOSE
 
