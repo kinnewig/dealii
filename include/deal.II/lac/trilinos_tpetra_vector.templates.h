@@ -47,8 +47,12 @@ namespace LinearAlgebra
     template <typename Number>
     Vector<Number>::Vector()
       : Subscriptor()
-      , vector(new VectorType(Teuchos::rcp(
-          new MapType(0, 0, Utilities::Trilinos::tpetra_comm_self()))))
+      , has_ghost(false)
+      , vector(Utilities::Trilinos::internal::make_rcp<VectorType>(
+          Utilities::Trilinos::internal::make_rcp<MapType>(
+            0,
+            0,
+            Utilities::Trilinos::tpetra_comm_self())))
     {}
 
 
@@ -56,7 +60,12 @@ namespace LinearAlgebra
     template <typename Number>
     Vector<Number>::Vector(const Vector<Number> &V)
       : Subscriptor()
-      , vector(new VectorType(V.trilinos_vector(), Teuchos::Copy))
+      , has_ghost(V.has_ghost)
+      , vector(Utilities::Trilinos::internal::make_rcp<VectorType>(
+          V.trilinos_vector(),
+          Teuchos::Copy))
+      , locally_owned_map(V.locally_owned_map)
+      , locally_relevant_map(V.locally_relevant_map)
     {}
 
 
@@ -64,8 +73,20 @@ namespace LinearAlgebra
     template <typename Number>
     Vector<Number>::Vector(const Teuchos::RCP<VectorType> V)
       : Subscriptor()
+      , has_ghost(false)
       , vector(V)
-    {}
+    {
+      if (vector->getMap()->isOneToOne())
+        {
+          locally_owned_map =
+            Teuchos::rcp_const_cast<MapType>(vector->getMap());
+        }
+      else
+        {
+          locally_relevant_map =
+            Teuchos::rcp_const_cast<MapType>(vector->getMap());
+        }
+    }
 
 
 
@@ -73,9 +94,13 @@ namespace LinearAlgebra
     Vector<Number>::Vector(const IndexSet &parallel_partitioner,
                            const MPI_Comm  communicator)
       : Subscriptor()
-      , vector(new VectorType(
-          parallel_partitioner.make_tpetra_map_rcp(communicator, false)))
-    {}
+      , has_ghost(false)
+      , locally_owned_map(
+          parallel_partitioner.make_tpetra_map_rcp(communicator, false))
+    {
+      vector = Utilities::Trilinos::internal::make_rcp<VectorType>(
+        locally_owned_map);
+    }
 
 
 
@@ -85,12 +110,23 @@ namespace LinearAlgebra
                            const MPI_Comm  communicator,
                            const bool      omit_zeroing_entries)
     {
-      Teuchos::RCP<MapType> input_map =
+      // release memory before reallocation
+      vector.reset();
+      locally_owned_map.reset();
+      locally_relevant_map.reset();
+      source_stored_elements.clear();
+
+      // Here we assume, that the index set is non-overlapping.
+      // If the index set is overlapping the function
+      // make_tpetra_map_rcp() will throw an assert.
+      has_ghost = false;
+      locally_owned_map =
         parallel_partitioner.make_tpetra_map_rcp(communicator, false);
 
-      if (vector->getMap()->isSameAs(*input_map) == false)
-        vector = Utilities::Trilinos::internal::make_rcp<VectorType>(input_map);
-      else if (omit_zeroing_entries == false)
+      if (!vector->getMap()->isSameAs(*locally_owned_map))
+        vector = Utilities::Trilinos::internal::make_rcp<VectorType>(
+          locally_owned_map);
+      if (!omit_zeroing_entries)
         {
           vector->putScalar(0.);
         }
@@ -104,13 +140,23 @@ namespace LinearAlgebra
                            const IndexSet &ghost_entries,
                            const MPI_Comm  communicator)
     {
+      // release memory before reallocation
+      vector.reset();
+      locally_owned_map.reset();
+      locally_relevant_map.reset();
+
+      locally_owned_map =
+        locally_owned_entries.make_tpetra_map_rcp(communicator, false);
+
       IndexSet parallel_partitioner = locally_owned_entries;
       parallel_partitioner.add_indices(ghost_entries);
-
-      Teuchos::RCP<MapType> input_map =
+      locally_relevant_map =
         parallel_partitioner.make_tpetra_map_rcp(communicator, true);
 
-      vector = Utilities::Trilinos::internal::make_rcp<VectorType>(input_map);
+      vector = Utilities::Trilinos::internal::make_rcp<VectorType>(
+        locally_relevant_map);
+
+      has_ghost = false;
     }
 
 
@@ -135,6 +181,62 @@ namespace LinearAlgebra
 
 
     template <typename Number>
+    void
+    Vector<Number>::extract_subvector_to(
+      const ArrayView<const types::global_dof_index> &indices,
+      ArrayView<Number>                              &elements) const
+    {
+      AssertDimension(indices.size(), elements.size());
+
+#  if DEAL_II_TRILINOS_VERSION_GTE(13, 2, 0)
+      auto vector_2d = vector->template getLocalView<Kokkos::HostSpace>(
+        Tpetra::Access::ReadOnly);
+#  else
+      /*
+       * For Trilinos older than 13.2 we would normally have to call
+       * vector.template sync<Kokkos::HostSpace>() at this place in order
+       * to sync between memory spaces. This is necessary for GPU support.
+       * Unfortunately, we are in a const context here and cannot call to
+       * sync() (which is a non-const member function).
+       *
+       * Let us choose to simply ignore this problem for such an old
+       * Trilinos version.
+       */
+      auto vector_2d = vector->template getLocalView<Kokkos::HostSpace>();
+#  endif
+      auto vector_1d = Kokkos::subview(vector_2d, Kokkos::ALL(), 0);
+
+      for (unsigned int i = 0; i < indices.size(); ++i)
+        {
+          AssertIndexRange(indices[i], size());
+          const size_type                   row = indices[i];
+          TrilinosWrappers::types::int_type local_row =
+            vector->getMap()->getLocalElement(row);
+
+
+          Assert(
+            local_row != Teuchos::OrdinalTraits<int>::invalid(),
+#  if DEAL_II_TRILINOS_VERSION_GTE(14, 0, 0)
+            ExcAccessToNonLocalElement(row,
+                                       vector->getMap()->getLocalNumElements(),
+                                       vector->getMap()->getMinLocalIndex(),
+                                       vector->getMap()->getMaxLocalIndex()));
+#  else
+            ExcAccessToNonLocalElement(row,
+                                       vector->getMap()->getNodeNumElements(),
+                                       vector->getMap()->getMinLocalIndex(),
+                                       vector->getMap()->getMaxLocalIndex()));
+
+#  endif
+
+          if (local_row != Teuchos::OrdinalTraits<int>::invalid())
+            elements[i] = vector_1d(local_row);
+        }
+    }
+
+
+
+    template <typename Number>
     Vector<Number> &
     Vector<Number>::operator=(const Vector<Number> &V)
     {
@@ -142,21 +244,45 @@ namespace LinearAlgebra
       //  - First case: both vectors have the same layout.
       //  - Second case: both vectors have the same size but different layout.
       //  - Third case: the vectors have different size.
-      if (vector->getMap()->isSameAs(*(V.trilinos_vector().getMap())))
-        *vector = V.trilinos_vector();
+      if (vector->getMap()->isSameAs(*V.vector->getMap()))
+        {
+          *vector = *V.vector;
+        }
+      else if (size() == V.size())
+        {
+          // We expect the origin vector to have a one-to-one map, otherwise
+          // we can not call Import
+          Assert(V.vector->getMap()->isOneToOne(),
+                 ExcMessage(
+                   "You are trying to map one vector distributed "
+                   "between processors, where some elements belong "
+                   "to multiple processors, onto another distribution "
+                   "pattern, where some elements belong to multiple "
+                   "processors. It is unclear how to deal with elements "
+                   "in the vector belonging to multiple processors. "
+                   "Therefore, compress() must be called on this "
+                   "vector first."));
+
+          Teuchos::RCP<const ImportType> importer =
+            Tpetra::createImport(V.vector->getMap(), vector->getMap());
+
+          // Since we are distributing the vector from a one-to-one map
+          // we can always use the VectorOperation::insert / Tpetra::INSERT
+          // here.
+          vector->doImport(*V.vector, *importer, Tpetra::INSERT);
+        }
       else
         {
-          if (size() == V.size())
-            {
-              Tpetra::Import<int, types::signed_global_dof_index> data_exchange(
-                vector->getMap(), V.trilinos_vector().getMap());
+          vector.reset();
+          vector = Utilities::Trilinos::internal::make_rcp<VectorType>(
+            V.vector->getMap());
+          Tpetra::deep_copy(*vector, *V.vector);
 
-              vector->doImport(V.trilinos_vector(),
-                               data_exchange,
-                               Tpetra::REPLACE);
-            }
-          else
-            vector = Teuchos::rcp(new VectorType(V.trilinos_vector()));
+          has_ghost              = V.has_ghost;
+          locally_owned_map      = V.locally_owned_map;
+          locally_relevant_map   = V.locally_relevant_map;
+          source_stored_elements = V.source_stored_elements;
+          tpetra_comm_pattern    = V.tpetra_comm_pattern;
         }
 
       return *this;
@@ -217,8 +343,8 @@ namespace LinearAlgebra
               "LinearAlgebra::TpetraWrappers::CommunicationPattern."));
         }
 
-      Teuchos::RCP<const Tpetra::Export<int, types::signed_global_dof_index>>
-        tpetra_export = tpetra_comm_pattern->get_tpetra_export_rcp();
+      Teuchos::RCP<const ExportType> tpetra_export =
+        tpetra_comm_pattern->get_tpetra_export_rcp();
 
       VectorType source_vector(tpetra_export->getSourceMap());
 
@@ -244,12 +370,15 @@ namespace LinearAlgebra
             device_type::memory_space>();
 #  endif
       }
+      Tpetra::CombineMode tpetra_operation = Tpetra::ZERO;
       if (operation == VectorOperation::insert)
-        vector->doExport(source_vector, *tpetra_export, Tpetra::REPLACE);
+        tpetra_operation = Tpetra::INSERT;
       else if (operation == VectorOperation::add)
-        vector->doExport(source_vector, *tpetra_export, Tpetra::ADD);
+        tpetra_operation = Tpetra::ADD;
       else
-        AssertThrow(false, ExcNotImplemented());
+        Assert(false, ExcNotImplemented());
+
+      vector->doExport(source_vector, *tpetra_export, tpetra_operation);
     }
 
 
@@ -264,6 +393,7 @@ namespace LinearAlgebra
     {
       import_elements(V, operation);
     }
+
 
 
     template <typename Number>
@@ -329,12 +459,9 @@ namespace LinearAlgebra
           // elements, maybe there is a better workaround.
           Tpetra::Vector<Number, int, types::signed_global_dof_index> dummy(
             vector->getMap(), false);
-          Tpetra::Import<int, types::signed_global_dof_index> data_exchange(
-            down_V.trilinos_vector().getMap(), dummy.getMap());
-
-          dummy.doImport(down_V.trilinos_vector(),
-                         data_exchange,
-                         Tpetra::INSERT);
+          ImportType data_exchange(V.trilinos_vector().getMap(),
+                                   dummy.getMap());
+          dummy.doImport(V.trilinos_vector(), data_exchange, Tpetra::INSERT);
 
           vector->update(1.0, dummy, 1.0);
         }
@@ -371,6 +498,45 @@ namespace LinearAlgebra
              ExcDifferentParallelPartitioning());
 
       return vector->dot(down_V.trilinos_vector());
+    }
+
+
+
+    template <typename Number>
+    Number
+    Vector<Number>::operator()(const size_type index) const
+    {
+      // Get the local index
+      const TrilinosWrappers::types::int_type local_index =
+        vector->getMap()->getLocalElement(
+          static_cast<TrilinosWrappers::types::int_type>(index));
+
+      Number value = 0.0;
+
+      // If the element is not present on the current processor, we can't
+      // continue. This is the main difference to the el() function.
+      if (local_index == -1)
+        {
+#  if DEAL_II_TRILINOS_VERSION_GTE(14, 0, 0)
+          Assert(
+            false,
+            ExcAccessToNonLocalElement(index,
+                                       vector->getMap()->getLocalNumElements(),
+                                       vector->getMap()->getMinLocalIndex(),
+                                       vector->getMap()->getMaxLocalIndex()));
+#  else
+          Assert(
+            false,
+            ExcAccessToNonLocalElement(index,
+                                       vector->getMap()->getNodeNumElements(),
+                                       vector->getMap()->getMinLocalIndex(),
+                                       vector->getMap()->getMaxLocalIndex()));
+#  endif
+        }
+      else
+        value = vector->getData()[local_index];
+
+      return value;
     }
 
 
@@ -665,6 +831,47 @@ namespace LinearAlgebra
 
 
     template <typename Number>
+    void
+    Vector<Number>::compress(const VectorOperation::values operation)
+    {
+      Assert(has_ghost == false,
+             ExcMessage("Calling compress() is only useful if a vector "
+                        "has been written into, but this is a vector with ghost "
+                        "elements and consequently is read-only. It does "
+                        "not make sense to call compress() for such "
+                        "vectors."));
+
+      if (!vector->getMap()->isOneToOne())
+        {
+          Tpetra::CombineMode tpetra_operation = Tpetra::ZERO;
+          if (operation == VectorOperation::insert)
+            tpetra_operation = Tpetra::INSERT;
+          else if (operation == VectorOperation::add)
+            tpetra_operation = Tpetra::ADD;
+          else
+            Assert(false, ExcNotImplemented());
+
+          if (locally_relevant_map.is_null())
+            locally_relevant_map =
+              Teuchos::rcp_const_cast<MapType>(vector->getMap());
+
+          Assert(!locally_relevant_map.is_null(), ExcMissingIndexSet());
+          Assert(!locally_owned_map.is_null(), ExcMissingIndexSet());
+
+          VectorType dummy = VectorType(locally_owned_map.getConst());
+
+          Teuchos::RCP<const ExportType> exporter =
+            Tpetra::createExport(locally_relevant_map.getConst(),
+                                 locally_owned_map.getConst());
+          dummy.doExport(*vector, *exporter, tpetra_operation);
+
+          *vector = dummy;
+        }
+    }
+
+
+
+    template <typename Number>
     const Tpetra::Vector<Number, int, types::signed_global_dof_index> &
     Vector<Number>::trilinos_vector() const
     {
@@ -731,13 +938,27 @@ namespace LinearAlgebra
       auto         vector_1d    = Kokkos::subview(vector_2d, Kokkos::ALL(), 0);
       const size_t local_length = vector->getLocalLength();
 
-      if (across)
-        for (unsigned int i = 0; i < local_length; ++i)
-          out << vector_1d(i) << ' ';
+      if (size() != local_length)
+        {
+          out << "size:" << size() << " locally_owned_size:" << local_length
+              << " :" << std::endl;
+          for (size_type i = 0; i < local_length; ++i)
+            {
+              const TrilinosWrappers::types::int_type global_row =
+                vector->getMap()->getGlobalElement(i);
+              out << "[" << global_row << "]: " << vector_1d(i) << std::endl;
+            }
+        }
       else
-        for (unsigned int i = 0; i < local_length; ++i)
-          out << vector_1d(i) << std::endl;
-      out << std::endl;
+        {
+          if (across)
+            for (unsigned int i = 0; i < local_length; ++i)
+              out << vector_1d(i) << ' ';
+          else
+            for (unsigned int i = 0; i < local_length; ++i)
+              out << vector_1d(i) << std::endl;
+          out << std::endl;
+        }
 
       // restore the representation
       // of the vector
