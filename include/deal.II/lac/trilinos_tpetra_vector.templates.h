@@ -89,7 +89,7 @@ namespace LinearAlgebra
         parallel_partitioner.make_tpetra_map_rcp(communicator, false);
 
       if (vector->getMap()->isSameAs(*input_map) == false)
-        vector = Teuchos::rcp(new VectorType(input_map));
+        vector = Utilities::Trilinos::internal::make_rcp<VectorType>(input_map);
       else if (omit_zeroing_entries == false)
         {
           vector->putScalar(0.);
@@ -110,7 +110,7 @@ namespace LinearAlgebra
       Teuchos::RCP<MapType> input_map =
         parallel_partitioner.make_tpetra_map_rcp(communicator, true);
 
-      vector = Teuchos::rcp(new VectorType(input_map));
+      vector = Utilities::Trilinos::internal::make_rcp<VectorType>(input_map);
     }
 
 
