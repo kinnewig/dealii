@@ -47,6 +47,7 @@ namespace LinearAlgebra
     template <typename Number>
     Vector<Number>::Vector()
       : Subscriptor()
+      , compressed(true)
       , has_ghost(false)
       , vector(Utilities::Trilinos::internal::make_rcp<VectorType>(
           Utilities::Trilinos::internal::make_rcp<MapType>(
@@ -60,12 +61,10 @@ namespace LinearAlgebra
     template <typename Number>
     Vector<Number>::Vector(const Vector<Number> &V)
       : Subscriptor()
+      , compressed(V.compressed)
       , has_ghost(V.has_ghost)
-      , vector(Utilities::Trilinos::internal::make_rcp<VectorType>(
-          V.trilinos_vector(),
-          Teuchos::Copy))
-      , locally_owned_map(V.locally_owned_map)
-      , locally_relevant_map(V.locally_relevant_map)
+      , vector(V.vector)
+      , nonlocal_vector(V.nonlocal_vector)
     {}
 
 
@@ -73,20 +72,10 @@ namespace LinearAlgebra
     template <typename Number>
     Vector<Number>::Vector(const Teuchos::RCP<VectorType> V)
       : Subscriptor()
-      , has_ghost(false)
+      , compressed(true)
+      , has_ghost(V->getMap()->isOneToOne() == false)
       , vector(V)
-    {
-      if (vector->getMap()->isOneToOne())
-        {
-          locally_owned_map =
-            Teuchos::rcp_const_cast<MapType>(vector->getMap());
-        }
-      else
-        {
-          locally_relevant_map =
-            Teuchos::rcp_const_cast<MapType>(vector->getMap());
-        }
-    }
+    {}
 
 
 
@@ -94,12 +83,54 @@ namespace LinearAlgebra
     Vector<Number>::Vector(const IndexSet &parallel_partitioner,
                            const MPI_Comm  communicator)
       : Subscriptor()
+      , compressed(true)
       , has_ghost(false)
-      , locally_owned_map(
-          parallel_partitioner.make_tpetra_map_rcp(communicator, false))
+      , vector(Utilities::Trilinos::internal::make_rcp<VectorType>(
+          parallel_partitioner.make_tpetra_map_rcp(communicator, true)))
+    {}
+
+
+
+    template <typename Number>
+    Vector<Number>::Vector(const IndexSet &locally_owned_entries,
+                           const IndexSet &ghost_entries,
+                           const MPI_Comm  communicator,
+                           const bool      vector_writable)
+      : Subscriptor()
     {
-      vector = Utilities::Trilinos::internal::make_rcp<VectorType>(
-        locally_owned_map);
+      if (!vector_writable)
+        {
+          IndexSet parallel_partitioner = locally_owned_entries;
+          parallel_partitioner.add_indices(ghost_entries);
+
+          vector = Utilities::Trilinos::internal::make_rcp<VectorType>(
+            parallel_partitioner.make_tpetra_map_rcp(communicator, true));
+
+          compressed = true;
+        }
+      else
+        {
+          Teuchos::RCP<MapType> map =
+            locally_owned_entries.make_tpetra_map_rcp(communicator, false);
+          vector = Utilities::Trilinos::internal::make_rcp<VectorType>(map);
+
+          IndexSet nonlocal_entries(ghost_entries);
+          nonlocal_entries.subtract_set(locally_owned_entries);
+          nonlocal_vector = Utilities::Trilinos::internal::make_rcp<VectorType>(
+            nonlocal_entries.make_tpetra_map_rcp(communicator, true));
+
+          compressed = false;
+        }
+
+      has_ghost = (vector->getMap()->isOneToOne() == false);
+
+#  ifdef DEBUG
+      MPI_Comm comm = Utilities::Trilinos::teuchos_comm_to_mpi_comm(
+        vector->getMap()->getComm());
+      const size_type n_elements_global =
+        Utilities::MPI::sum(vector->getLocalLength(), comm);
+      Assert(has_ghost || n_elements_global == size(), ExcInternalError());
+#  endif
     }
 
 
@@ -108,28 +139,15 @@ namespace LinearAlgebra
     void
     Vector<Number>::reinit(const IndexSet &parallel_partitioner,
                            const MPI_Comm  communicator,
-                           const bool      omit_zeroing_entries)
+                           const bool /*omit_zeroing_entries*/)
     {
-      // release memory before reallocation
       vector.reset();
-      locally_owned_map.reset();
-      locally_relevant_map.reset();
-      source_stored_elements.clear();
+      nonlocal_vector.reset();
 
-      // Here we assume, that the index set is non-overlapping.
-      // If the index set is overlapping the function
-      // make_tpetra_map_rcp() will throw an assert.
-      has_ghost = false;
-      locally_owned_map =
-        parallel_partitioner.make_tpetra_map_rcp(communicator, false);
-
-      if (!vector->getMap()->isSameAs(*locally_owned_map))
-        vector = Utilities::Trilinos::internal::make_rcp<VectorType>(
-          locally_owned_map);
-      if (!omit_zeroing_entries)
-        {
-          vector->putScalar(0.);
-        }
+      compressed = true;
+      has_ghost  = false;
+      vector     = Utilities::Trilinos::internal::make_rcp<VectorType>(
+        parallel_partitioner.make_tpetra_map_rcp(communicator, true));
     }
 
 
@@ -138,25 +156,47 @@ namespace LinearAlgebra
     void
     Vector<Number>::reinit(const IndexSet &locally_owned_entries,
                            const IndexSet &ghost_entries,
-                           const MPI_Comm  communicator)
+                           const MPI_Comm  communicator,
+                           const bool      vector_writable)
     {
       // release memory before reallocation
-      vector.reset();
-      locally_owned_map.reset();
-      locally_relevant_map.reset();
+      nonlocal_vector.reset();
 
-      locally_owned_map =
-        locally_owned_entries.make_tpetra_map_rcp(communicator, false);
+      if (!vector_writable)
+        {
+          vector.reset();
 
-      IndexSet parallel_partitioner = locally_owned_entries;
-      parallel_partitioner.add_indices(ghost_entries);
-      locally_relevant_map =
-        parallel_partitioner.make_tpetra_map_rcp(communicator, true);
+          IndexSet parallel_partitioner = locally_owned_entries;
+          parallel_partitioner.add_indices(ghost_entries);
 
-      vector = Utilities::Trilinos::internal::make_rcp<VectorType>(
-        locally_relevant_map);
+          vector = Utilities::Trilinos::internal::make_rcp<VectorType>(
+            parallel_partitioner.make_tpetra_map_rcp(communicator, true));
 
-      has_ghost = false;
+          compressed = true;
+        }
+      else
+        {
+          Teuchos::RCP<MapType> map =
+            locally_owned_entries.make_tpetra_map_rcp(communicator, false);
+
+          if (!vector->getMap()->isSameAs(*map))
+            {
+              vector.reset();
+              vector = Utilities::Trilinos::internal::make_rcp<VectorType>(map);
+            }
+          else
+            vector->putScalar(0);
+
+          IndexSet nonlocal_entries(ghost_entries);
+          nonlocal_entries.subtract_set(locally_owned_entries);
+
+          nonlocal_vector = Utilities::Trilinos::internal::make_rcp<VectorType>(
+            nonlocal_entries.make_tpetra_map_rcp(communicator, true));
+
+          compressed = false;
+        }
+
+      has_ghost = (vector->getMap()->isOneToOne() == false);
     }
 
 
@@ -278,9 +318,8 @@ namespace LinearAlgebra
             V.vector->getMap());
           Tpetra::deep_copy(*vector, *V.vector);
 
+          compressed             = V.compressed;
           has_ghost              = V.has_ghost;
-          locally_owned_map      = V.locally_owned_map;
-          locally_relevant_map   = V.locally_relevant_map;
           source_stored_elements = V.source_stored_elements;
           tpetra_comm_pattern    = V.tpetra_comm_pattern;
         }
@@ -294,10 +333,18 @@ namespace LinearAlgebra
     Vector<Number> &
     Vector<Number>::operator=(const Number s)
     {
-      Assert(s == Number(0.),
+      (void)s;
+      Assert(s == Number(0.0),
              ExcMessage("Only 0 can be assigned to a vector."));
 
-      vector->putScalar(s);
+      // As checked above, we are only allowed to use d==0.0, so pass
+      // a constant zero (instead of a run-time value 'd' that *happens* to
+      // have a zero value) to the underlying class in hopes that the compiler
+      // can optimize this somehow.
+      vector->putScalar(/*s=*/0.0);
+
+      if (nonlocal_vector.is_null())
+        nonlocal_vector->putScalar(/*s=*/0.0);
 
       return *this;
     }
@@ -496,6 +543,7 @@ namespace LinearAlgebra
              ExcDimensionMismatch(this->size(), down_V.size()));
       Assert(vector->getMap()->isSameAs(*down_V.trilinos_vector().getMap()),
              ExcDifferentParallelPartitioning());
+      Assert(!has_ghost_elements(), ExcGhostsPresent());
 
       return vector->dot(down_V.trilinos_vector());
     }
@@ -515,7 +563,7 @@ namespace LinearAlgebra
 
       // If the element is not present on the current processor, we can't
       // continue. This is the main difference to the el() function.
-      if (local_index == -1)
+      if (local_index == Teuchos::OrdinalTraits<int>::invalid())
         {
 #  if DEAL_II_TRILINOS_VERSION_GTE(14, 0, 0)
           Assert(
@@ -546,6 +594,10 @@ namespace LinearAlgebra
     Vector<Number>::add(const Number a)
     {
       AssertIsFinite(a);
+
+      // if we have ghost values, do not allow
+      // writing to this vector at all.
+      Assert(!has_ghost_elements(), ExcGhostsPresent());
 
 #  if DEAL_II_TRILINOS_VERSION_GTE(13, 2, 0)
       auto vector_2d = vector->template getLocalView<Kokkos::HostSpace>(
@@ -583,10 +635,15 @@ namespace LinearAlgebra
       // Downcast V. If fails, throws an exception.
       const Vector<Number> &down_V = dynamic_cast<const Vector<Number> &>(V);
       AssertIsFinite(a);
-      Assert(vector->getMap()->isSameAs(*(down_V.trilinos_vector().getMap())),
+
+      Assert(vector->getMap()->isSameAs(*(V.trilinos_vector().getMap())),
              ExcDifferentParallelPartitioning());
 
-      vector->update(a, down_V.trilinos_vector(), 1.);
+      // if we have ghost values, do not allow
+      // writing to this vector at all.
+      Assert(!has_ghost_elements(), ExcGhostsPresent());
+
+      vector->update(a, V.trilinos_vector(), 1.);
     }
 
 
@@ -598,23 +655,17 @@ namespace LinearAlgebra
                         const Number                     b,
                         const VectorSpaceVector<Number> &W)
     {
-      // Check that casting will work.
-      Assert(dynamic_cast<const Vector<Number> *>(&V) != nullptr,
-             ExcVectorTypeNotCompatible());
-      // Check that casting will work.
-      Assert(dynamic_cast<const Vector<Number> *>(&W) != nullptr,
-             ExcVectorTypeNotCompatible());
+      AssertIsFinite(a);
+      AssertIsFinite(b);
 
-      // Downcast V. If fails, throws an exception.
-      const Vector<Number> &down_V = dynamic_cast<const Vector<Number> &>(V);
-      // Downcast W. If fails, throws an exception.
-      const Vector<Number> &down_W = dynamic_cast<const Vector<Number> &>(W);
-      Assert(vector->getMap()->isSameAs(*(down_V.trilinos_vector().getMap())),
+      Assert(vector->getMap()->isSameAs(*(V.trilinos_vector().getMap())),
              ExcDifferentParallelPartitioning());
       Assert(vector->getMap()->isSameAs(*(down_W.trilinos_vector().getMap())),
              ExcDifferentParallelPartitioning());
-      AssertIsFinite(a);
-      AssertIsFinite(b);
+
+      // if we have ghost values, do not allow
+      // writing to this vector at all.
+      Assert(!has_ghost_elements(), ExcGhostsPresent());
 
       vector->update(
         a, down_V.trilinos_vector(), b, down_W.trilinos_vector(), 1.);
@@ -628,9 +679,14 @@ namespace LinearAlgebra
                          const Number                     a,
                          const VectorSpaceVector<Number> &V)
     {
-      // Check that casting will work.
-      Assert(dynamic_cast<const Vector<Number> *>(&V) != nullptr,
-             ExcVectorTypeNotCompatible());
+      AssertIsFinite(s);
+      AssertIsFinite(a);
+
+      // if we have ghost values, do not allow
+      // writing to this vector at all.
+      Assert(!has_ghost_elements(), ExcGhostsPresent());
+
+      *this *= s;
 
       *this *= s;
       // Downcast V. It fails, throws an exception.
@@ -657,10 +713,11 @@ namespace LinearAlgebra
                *(down_scaling_factors.trilinos_vector().getMap())),
              ExcDifferentParallelPartitioning());
 
-      vector->elementWiseMultiply(1.,
-                                  *down_scaling_factors.vector,
-                                  *vector,
-                                  0.);
+      // if we have ghost values, do not allow
+      // writing to this vector at all.
+      Assert(!has_ghost_elements(), ExcGhostsPresent());
+
+      vector->elementWiseMultiply(1., *scaling_factors.vector, *vector, 0.);
     }
 
 
@@ -669,12 +726,12 @@ namespace LinearAlgebra
     void
     Vector<Number>::equ(const Number a, const VectorSpaceVector<Number> &V)
     {
-      // Check that casting will work.
-      Assert(dynamic_cast<const Vector<Number> *>(&V) != nullptr,
-             ExcVectorTypeNotCompatible());
+      AssertIsFinite(a);
 
-      // Downcast V. If fails, throws an exception.
-      const Vector<Number> &down_V = dynamic_cast<const Vector<Number> &>(V);
+      // if we have ghost values, do not allow
+      // writing to this vector at all.
+      Assert(!has_ghost_elements(), ExcGhostsPresent());
+
       // If we don't have the same map, copy.
       if (vector->getMap()->isSameAs(*down_V.trilinos_vector().getMap()) ==
           false)
@@ -725,6 +782,8 @@ namespace LinearAlgebra
     Number
     Vector<Number>::mean_value() const
     {
+      Assert(!has_ghost_elements(), ExcGhostsPresent());
+
       return vector->meanValue();
     }
 
@@ -734,6 +793,8 @@ namespace LinearAlgebra
     typename LinearAlgebra::VectorSpaceVector<Number>::real_type
     Vector<Number>::l1_norm() const
     {
+      Assert(!has_ghost_elements(), ExcGhostsPresent());
+
       return vector->norm1();
     }
 
@@ -743,6 +804,8 @@ namespace LinearAlgebra
     typename LinearAlgebra::VectorSpaceVector<Number>::real_type
     Vector<Number>::l2_norm() const
     {
+      Assert(!has_ghost_elements(), ExcGhostsPresent());
+
       return vector->norm2();
     }
 
@@ -752,6 +815,8 @@ namespace LinearAlgebra
     typename LinearAlgebra::VectorSpaceVector<Number>::real_type
     Vector<Number>::linfty_norm() const
     {
+      Assert(!has_ghost_elements(), ExcGhostsPresent());
+
       return vector->normInf();
     }
 
@@ -763,6 +828,8 @@ namespace LinearAlgebra
                                 const VectorSpaceVector<Number> &V,
                                 const VectorSpaceVector<Number> &W)
     {
+      AssertIsFinite(a);
+
       this->add(a, V);
 
       return *this * W;
@@ -835,13 +902,14 @@ namespace LinearAlgebra
     Vector<Number>::compress(const VectorOperation::values operation)
     {
       Assert(has_ghost == false,
-             ExcMessage("Calling compress() is only useful if a vector "
-                        "has been written into, but this is a vector with ghost "
-                        "elements and consequently is read-only. It does "
-                        "not make sense to call compress() for such "
-                        "vectors."));
+             ExcMessage(
+               "Calling compress() is only useful if a vector "
+               "has been written into, but this is a vector with ghost "
+               "elements and consequently is read-only. It does "
+               "not make sense to call compress() for such "
+               "vectors."));
 
-      if (!vector->getMap()->isOneToOne())
+      if (!compressed)
         {
           Tpetra::CombineMode tpetra_operation = Tpetra::ZERO;
           if (operation == VectorOperation::insert)
@@ -851,21 +919,11 @@ namespace LinearAlgebra
           else
             Assert(false, ExcNotImplemented());
 
-          if (locally_relevant_map.is_null())
-            locally_relevant_map =
-              Teuchos::rcp_const_cast<MapType>(vector->getMap());
-
-          Assert(!locally_relevant_map.is_null(), ExcMissingIndexSet());
-          Assert(!locally_owned_map.is_null(), ExcMissingIndexSet());
-
-          VectorType dummy = VectorType(locally_owned_map.getConst());
-
           Teuchos::RCP<const ExportType> exporter =
-            Tpetra::createExport(locally_relevant_map.getConst(),
-                                 locally_owned_map.getConst());
-          dummy.doExport(*vector, *exporter, tpetra_operation);
+            Tpetra::createExport(nonlocal_vector->getMap(), vector->getMap());
+          vector->doExport(*nonlocal_vector, *exporter, tpetra_operation);
 
-          *vector = dummy;
+          compressed = true;
         }
     }
 
