@@ -146,6 +146,7 @@ if(DEAL_II_WITH_TRILINOS)
     trilinos_sparse_matrix.cc
     trilinos_sparsity_pattern.cc
     trilinos_tpetra_block_vector.cc
+    trilinos_tpetra_block_sparse_matrix.cc
     trilinos_tpetra_communication_pattern.cc
     trilinos_tpetra_vector.cc
     trilinos_vector.cc
