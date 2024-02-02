@@ -122,6 +122,16 @@ namespace LinearAlgebra
 
 
 
+    template <typename Number, typename Node>
+    void
+    PreconditionRILUK<Number, Node>::vmult(Vector<Number>       &dst,
+                                           const Vector<Number> &src) const
+    {
+      preconditioner->apply(src.trilinos_vector(), dst.trilinos_vector());
+    }
+
+
+
     // FROSch
     template <typename Number, typename Node>
     void

@@ -96,7 +96,7 @@ namespace LinearAlgebra
     template <typename Number, typename MemorySpace>
     class SparseMatrix;
 
-    template <typename Number>
+    template <typename Number, typename MemorySpace>
     class Vector;
 
     template <typename MemorySpace>
@@ -223,6 +223,9 @@ namespace LinearAlgebra
        */
       void
       initialize(const SparseMatrix<double> &matrix);
+
+      void
+      vmult(Vector<Number> &dst, const Vector<Number> &src) const;
     }; // class PreconditionIULT
 
 
