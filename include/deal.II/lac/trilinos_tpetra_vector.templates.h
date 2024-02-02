@@ -145,9 +145,23 @@ namespace LinearAlgebra
 
     template <typename Number>
     void
-    Vector<Number>::reinit(const IndexSet &parallel_partitioner,
-                           const MPI_Comm  communicator,
-                           const bool /*omit_zeroing_entries*/)
+    Vector<Number, MemorySpace>::clear()
+    {
+      vector = Utilities::Trilinos::internal::make_rcp<VectorType>(
+        Utilities::Trilinos::internal::make_rcp<MapType>(
+          0, 0, Utilities::Trilinos::tpetra_comm_self()));
+      has_ghost  = false;
+      compressed = true;
+      nonlocal_vector.reset();
+    }
+
+
+
+    template <typename Number, typename MemorySpace>
+    void
+    Vector<Number, MemorySpace>::reinit(const IndexSet &parallel_partitioner,
+                                        const MPI_Comm  communicator,
+                                        const bool /*omit_zeroing_entries*/)
     {
       vector.reset();
       nonlocal_vector.reset();
@@ -1032,9 +1046,10 @@ namespace LinearAlgebra
     }
 
 
-    template <typename Number>
-    const MPI_Comm
-    Vector<Number>::mpi_comm() const
+
+    template <typename Number, typename MemorySpace>
+    MPI_Comm
+    Vector<Number, MemorySpace>::mpi_comm() const
     {
       MPI_Comm out;
 #  ifdef DEAL_II_WITH_MPI
