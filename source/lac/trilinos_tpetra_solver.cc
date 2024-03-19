@@ -78,7 +78,7 @@ namespace LinearAlgebra
 
       // TODO
       // Ask the solver how many iterations the last solve() took.
-      // const int numIters = solver->getNumIters();
+      num_iterations = solver->getNumIters();
     }
 
 

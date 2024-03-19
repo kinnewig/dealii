@@ -114,6 +114,11 @@ namespace LinearAlgebra
       control() const;
 
       /**
+       * Number of Iterations
+       */
+      unsigned int num_iterations;
+
+      /**
        * Exception
        */
       DeclException1(ExcTrilinosError,
