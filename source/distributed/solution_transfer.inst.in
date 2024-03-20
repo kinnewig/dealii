@@ -60,6 +60,13 @@ for (deal_II_dimension : DIMENSIONS; deal_II_space_dimension : SPACE_DIMENSIONS)
                                         deal_II_space_dimension>;
 #  endif
 
+#  ifdef DEAL_II_TRILINOS_WITH_TPETRA
+        template class SolutionTransfer<
+          deal_II_dimension,
+          LinearAlgebra::TpetraWrappers::Vector<double>,
+          deal_II_space_dimension>;
+#  endif
+
 #endif
       \}
     \}
