@@ -231,7 +231,7 @@ FE_NedelecSZ<3, 3>::precompute_line_to_cell_map(
   const int spacedim = 3;
 
   // Compute the vertex to cell map
-  std::vector<
+  const std::vector<
     std::set<typename Triangulation<dim, spacedim>::active_cell_iterator>>
     vertex_to_cell =
       GridTools::vertex_to_cell_map(dof_handler.get_triangulation());
@@ -253,10 +253,12 @@ FE_NedelecSZ<3, 3>::precompute_line_to_cell_map(
             GeometryInfo<dim>::line_to_cell_vertices(line, 0));
           unsigned int vertex_1 = cell->vertex_index(
             GeometryInfo<dim>::line_to_cell_vertices(line, 1));
-          std::set<typename Triangulation<dim, spacedim>::active_cell_iterator>
-            adjacent_cells_to_vertex_0 = vertex_to_cell[vertex_0];
-          std::set<typename Triangulation<dim, spacedim>::active_cell_iterator>
-            adjacent_cells_to_vertex_1 = vertex_to_cell[vertex_1];
+          const std::set<
+            typename Triangulation<dim, spacedim>::active_cell_iterator>
+            &adjacent_cells_to_vertex_0 = vertex_to_cell[vertex_0];
+          const std::set<
+            typename Triangulation<dim, spacedim>::active_cell_iterator>
+            &adjacent_cells_to_vertex_1 = vertex_to_cell[vertex_1];
 
           // add all cells that are adjacent to vertex_0 and vertex_1
           std::set_intersection(
@@ -1971,7 +1973,7 @@ FE_NedelecSZ<dim, spacedim>::fill_edge_values(
               // This also covers cases where five or more cells are adjacent
               // to one edge. We are using here the pre-computed
               // line_to_cell_map. The pre-computation is triggered by calling
-              // compute_haging_node_constraints(). Thereby, everything stays
+              // compute_hanging_node_constraints(). Thereby, everything stays
               // the same for the user.
               if (line_to_cell_map.size() != 0)
                 for (unsigned int line : cell->line_indices())
