@@ -1,86 +1,18 @@
-What is deal.II?
-================
-
-deal.II is a C++ program library targeted at the computational solution
-of partial differential equations using adaptive finite elements. It uses
-state-of-the-art programming techniques to offer you a modern interface
-to the complex data structures and algorithms required.
-
-For the impatient:
-------------------
-
-Let's say you've unpacked the .tar.gz file into a directory /path/to/dealii/sources. 
-Then configure, compile, and install the deal.II library with:
-
-    $ mkdir build
-    $ cd build
-    $ cmake -DCMAKE_INSTALL_PREFIX=/path/where/dealii/should/be/installed/to /path/to/dealii/sources
-    $ make install    (alternatively $ make -j<N> install)
-    $ make test
-
-To build from the repository, execute the following commands first:
-
-    $ git clone https://github.com/dealii/dealii
-    $ cd dealii
-
-Then continue as before.
-
-A detailed *ReadME* can be found at [./doc/readme.html](https://dealii.org/developer/readme.html),
-[./doc/users/cmake_user.html](https://dealii.org/developer/users/cmake_user.html),
-or at https://www.dealii.org/.
-
-Getting started:
-----------------
-
-The tutorial steps are located under examples/ of the installation.
-Information about the tutorial steps can be found at
-[./doc/doxygen/tutorial/index.html](https://dealii.org/developer/doxygen/deal.II/Tutorial.html)
-or at https://www.dealii.org/.
-
-deal.II includes support for pretty-printing deal.II objects inside GDB.
-See [`contrib/utilities/dotgdbinit.py`](contrib/utilities/dotgdbinit.py) or
-the new documentation page (under 'information for users') for instructions
-on how to set this up.
-
-License:
---------
-
-Please see the file [./LICENSE.md](LICENSE.md) for details
-
-Further information:
---------------------
-
-For further information have a look at
-[./doc/index.html](https://dealii.org/developer/index.html) or at
-https://www.dealii.org.
-
-Continuous Integration Status:
-------------------------
-
-| System | Status                                                                                                                                                                                                                                           | More information                                                                      |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| Indent | ![indent](https://github.com/dealii/dealii/workflows/indent/badge.svg)                                                                                                                                                                           | using GitHub actions                                                                  |
-| Linux serial | [![Build Status](https://ci.tjhei.info/job/dealii-serial/job/master/badge/icon)](https://ci.tjhei.info/job/dealii-serial/job/master/)                                                                                                                | See https://ci.tjhei.info |
-| Linux MPI | [![Build Status](https://ci.tjhei.info/job/dealii-mpi/job/master/badge/icon)](https://ci.tjhei.info/job/dealii-mpi/job/master/)                                                                                                                | See https://ci.tjhei.info |
-| MacOS  | [![Build Status](https://ci.tjhei.info/job/dealii-OSX/job/master/badge/icon)](https://ci.tjhei.info/job/dealii-OSX/job/master/)                                                                                                        | See https://ci.tjhei.info                                                        |
-| Linux  | [![Build Status](https://github.com/dealii/dealii/workflows/github-linux/badge.svg)](https://github.com/dealii/dealii/actions?query=workflow%3Agithub-linux)                                                                                     | See https://github.com/dealii/dealii/actions                                          |
-| MacOS  | [![Build Status](https://github.com/dealii/dealii/workflows/github-OSX/badge.svg)](https://github.com/dealii/dealii/actions?query=workflow%3Agithub-OSX)                                                                                         | See https://github.com/dealii/dealii/actions                                          |
-| MSVC   | [![Build status](https://github.com/dealii/dealii/workflows/github-windows/badge.svg)](https://github.com/dealii/dealii/actions?query=workflow%3Agithub-windows)                                                                                 | See https://github.com/dealii/dealii/actions                                          |
-| Docker | [![Build status](https://github.com/dealii/dealii/workflows/github-docker/badge.svg)](https://github.com/dealii/dealii/actions?query=workflow%3Agithub-docker)                                                                                   | See https://github.com/dealii/dealii/actions                                          |
-| CDash  | [![cdash](https://img.shields.io/website?down_color=lightgrey&down_message=offline&label=CDash&up_color=green&up_message=up&url=https%3A%2F%2Fcdash.dealii.org%2Findex.php%3Fproject%3Ddeal.II)](https://cdash.dealii.org/index.php?project=deal.II) | Various builds and configurations on https://cdash.dealii.org/index.php?project=deal.II |
-
-Docker Images:
--------------
-
-Docker images based on the Ubuntu operating system are available on
-[Docker Hub](https://hub.docker.com/repository/docker/dealii/dealii). You can 
-use any of the available version 
-([list of available tags](https://hub.docker.com/repository/docker/dealii/dealii/tags)) 
-by running, for example:
-
-    $ docker run --rm -t -i dealii/dealii:master-focal
-
-The above command would drop you into an isolated environment, in which you 
-will find the latest version of deal.II (master development branch) installed
-under `/usr/local`.
-
+Algorithmic Realization: Solution to the Sign Conflict Problem for Hanging Nodes on Hp-Hexahedral Nédélec Elements 
+================ 
+ 
+This GitHub repository contains the implementation of an algorithmic solution to the sign conflict problem 
+for hanging nodes on hp-hexahedral Nédélec elements. The starting point for this work was DEALII 9.5.2. 
+ 
+# Overview 
+The sign conflict problem arises for Nédélec elements, as Nédélec elements are oriented. 
+These elements are widely used in electromagnetic simulations and other scientific computing applications. 
+Especially in the presence of hanging faces, one has to take special care of the orientation. 
+The algorithmic realization presented here addresses the orientation problem in the presence of hanging faces 
+and provides a robust solution. 
+ 
+The support for hanging nodes for Nedelec elements is already included in the deal.II master, and will be part of the next release. 
+ 
+# Preprint 
+For a detailed description of the implementation, please refer to our preprint: 
+[Algorithmic Realization of the Solution to the Sign Conflict Problem for Hanging Nodes on Hp-Hexahedral Nédélec Elements](https://arxiv.org/abs/2306.01416)
