@@ -1285,7 +1285,7 @@ namespace internal
     // might have non-symmetric quadrature formula, so use the more
     // conservative 'evaluate_general' scheme rather than 'even_odd' as the
     // Hessians are not used very often
-    const MatrixFreeFunctions::UnivariateShapeData<Number> &data =
+    const MatrixFreeFunctions::UnivariateShapeData<Number2> &data =
       fe_eval.get_shape_info().data[0];
     AssertDimension(data.shape_gradients_collocation.size(),
                     data.n_q_points_1d * data.n_q_points_1d);
@@ -1356,7 +1356,7 @@ namespace internal
     using Number2 =
       typename FEEvaluationData<dim, Number, false>::shape_info_number_type;
 
-    const MatrixFreeFunctions::UnivariateShapeData<Number> &data =
+    const MatrixFreeFunctions::UnivariateShapeData<Number2> &data =
       fe_eval.get_shape_info().data[0];
     AssertDimension(data.shape_gradients_collocation.size(),
                     data.n_q_points_1d * data.n_q_points_1d);
@@ -2060,6 +2060,16 @@ namespace internal
             fe_eval,
             sum_into_values_array);
         }
+      else if (element_type == ElementType::tensor_none)
+        {
+          evaluate_or_integrate<
+            FEEvaluationImpl<ElementType::tensor_none, dim, -1, 0, Number>>(
+            n_components,
+            actual_flag,
+            values_dofs,
+            fe_eval,
+            sum_into_values_array);
+        }
       else if (element_type == ElementType::tensor_symmetric_plus_dg0)
         {
           evaluate_or_integrate<
@@ -2076,19 +2086,6 @@ namespace internal
       else if (element_type == ElementType::truncated_tensor)
         {
           evaluate_or_integrate<FEEvaluationImpl<ElementType::truncated_tensor,
-                                                 dim,
-                                                 fe_degree,
-                                                 n_q_points_1d,
-                                                 Number>>(
-            n_components,
-            actual_flag,
-            values_dofs,
-            fe_eval,
-            sum_into_values_array);
-        }
-      else if (element_type == ElementType::tensor_none)
-        {
-          evaluate_or_integrate<FEEvaluationImpl<ElementType::tensor_none,
                                                  dim,
                                                  fe_degree,
                                                  n_q_points_1d,

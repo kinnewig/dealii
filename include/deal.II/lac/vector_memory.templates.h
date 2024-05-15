@@ -19,6 +19,7 @@
 #include <deal.II/base/config.h>
 
 #include <deal.II/base/kokkos.h>
+#include <deal.II/base/logstream.h>
 #include <deal.II/base/memory_consumption.h>
 
 #include <deal.II/lac/vector_memory.h>
@@ -204,9 +205,9 @@ GrowingVectorMemory<VectorType>::memory_consumption() const
   std::lock_guard<std::mutex> lock(mutex);
 
   std::size_t result = sizeof(*this);
-  for (const entry_type &i : *get_pool().data)
-    result +=
-      sizeof(entry_type) + MemoryConsumption::memory_consumption(i.second);
+  for (const auto &[_, ptr] : *get_pool().data)
+    result += sizeof(ptr) + (ptr ? MemoryConsumption::memory_consumption(*ptr) :
+                                   MemoryConsumption::memory_consumption(ptr));
 
   return result;
 }

@@ -11,8 +11,6 @@
  * LICENSE.md and CONTRIBUTING.md at the top level directory of deal.II.
  *
  * ------------------------------------------------------------------------
- *
- * Authors: Wolfgang Bangerth and Ralf Hartmann, University of Heidelberg, 2000
  */
 
 
@@ -704,7 +702,7 @@ namespace Step7
   template <int dim>
   void HelmholtzProblem<dim>::solve()
   {
-    SolverControl            solver_control(1000, 1e-12);
+    SolverControl            solver_control(1000, 1e-6 * system_rhs.l2_norm());
     SolverCG<Vector<double>> cg(solver_control);
 
     PreconditionSSOR<SparseMatrix<double>> preconditioner;
