@@ -26,6 +26,10 @@
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/sparsity_pattern.h>
 
+#ifdef DEAL_II_TRILINOS_WITH_ZOLTAN
+#  include <zoltan_cpp.h>
+#endif
+
 #include <memory>
 #include <vector>
 
@@ -100,7 +104,8 @@ namespace SparsityTools
   partition(const SparsityPattern     &sparsity_pattern,
             const unsigned int         n_partitions,
             std::vector<unsigned int> &partition_indices,
-            const Partitioner          partitioner = Partitioner::metis);
+            const Partitioner          partitioner = Partitioner::metis,
+            std::unique_ptr<Zoltan>    zz          = nullptr);
 
 
   /**
@@ -119,6 +124,23 @@ namespace SparsityTools
             const unsigned int               n_partitions,
             std::vector<unsigned int>       &partition_indices,
             const Partitioner                partitioner = Partitioner::metis);
+
+
+#ifdef DEAL_II_TRILINOS_WITH_ZOLTAN
+  void
+  partition(const SparsityPattern     &sparsity_pattern,
+            const unsigned int         n_partitions,
+            std::vector<unsigned int> &partition_indices,
+            std::unique_ptr<Zoltan>   &zz);
+
+
+  void
+  partition(const SparsityPattern           &sparsity_pattern,
+            const std::vector<unsigned int> &cell_weights,
+            const unsigned int               n_partitions,
+            std::vector<unsigned int>       &partition_indices,
+            std::unique_ptr<Zoltan>         &zz);
+#endif
 
   /**
    * Using a coloring algorithm provided by ZOLTAN to color nodes whose
