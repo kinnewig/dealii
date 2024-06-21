@@ -86,19 +86,6 @@ namespace FETools
     {
       AssertDimension(fes.size(), multiplicities.size());
 
-      unsigned int multiplied_n_components = 0;
-
-      unsigned int degree = 0; // degree is the maximal degree of the components
-
-      unsigned int n_components = 0;
-      // Get the number of components from the first given finite element.
-      for (unsigned int i = 0; i < fes.size(); ++i)
-        if (multiplicities[i] > 0)
-          {
-            n_components = fes[i]->n_components();
-            break;
-          }
-
       dealii::internal::GenericDoFsPerObject dpo;
 
       std::vector<dealii::internal::GenericDoFsPerObject> dpos_in(fes.size());
@@ -159,18 +146,20 @@ namespace FETools
           return dpo.first_object_index_on_face;
         });
 
+      const unsigned int n_components            = fes[0]->n_components();
+      unsigned int       multiplied_n_components = 0;
+      unsigned int degree = 0; // degree is the maximal degree of the components
+
       for (unsigned int i = 0; i < fes.size(); ++i)
-        if (multiplicities[i] > 0)
-          {
-            multiplied_n_components +=
-              fes[i]->n_components() * multiplicities[i];
+        {
+          Assert(do_tensor_product || (n_components == fes[i]->n_components()),
+                 ExcDimensionMismatch(n_components, fes[i]->n_components()));
 
-            Assert(do_tensor_product ||
-                     (n_components == fes[i]->n_components()),
-                   ExcDimensionMismatch(n_components, fes[i]->n_components()));
+          multiplied_n_components += fes[i]->n_components() * multiplicities[i];
 
+          if (multiplicities[i] > 0)
             degree = std::max(degree, fes[i]->tensor_degree());
-          }
+        }
 
       // assume conformity of the first finite element and then take away
       // bits as indicated by the base elements. if all multiplicities
@@ -198,8 +187,18 @@ namespace FETools
         for (unsigned int m = 0; m < multiplicities[base]; ++m)
           block_indices.push_back(fes[base]->n_dofs_per_cell());
 
+      const ReferenceCell reference_cell = fes.front()->reference_cell();
+      Assert(std::all_of(fes.begin(),
+                         fes.end(),
+                         [reference_cell](
+                           const FiniteElement<dim, spacedim> *fe) {
+                           return fe->reference_cell() == reference_cell;
+                         }),
+             ExcMessage("You cannot combine finite elements defined on "
+                        "different reference cells into a combined element "
+                        "such as an FESystem or FE_Enriched object."));
       return FiniteElementData<dim>(dpo,
-                                    fes.front()->reference_cell(),
+                                    reference_cell,
                                     (do_tensor_product ?
                                        multiplied_n_components :
                                        n_components),
@@ -223,20 +222,20 @@ namespace FETools
                          const FiniteElement<dim, spacedim> *fe5,
                          const unsigned int                  N5)
     {
-      std::vector<const FiniteElement<dim, spacedim> *> fes;
-      fes.push_back(fe1);
-      fes.push_back(fe2);
-      fes.push_back(fe3);
-      fes.push_back(fe4);
-      fes.push_back(fe5);
+      std::vector<const FiniteElement<dim, spacedim> *> fe_list = {
+        fe1, fe2, fe3, fe4, fe5};
+      std::vector<unsigned int> multiplicities = {N1, N2, N3, N4, N5};
 
-      std::vector<unsigned int> mult;
-      mult.push_back(N1);
-      mult.push_back(N2);
-      mult.push_back(N3);
-      mult.push_back(N4);
-      mult.push_back(N5);
-      return multiply_dof_numbers(fes, mult);
+      // This function is occasionally called with nullptr values for the
+      // finite elements. Drop those again.
+      while ((fe_list.size() > 0) && (fe_list.back() == nullptr))
+        {
+          Assert(multiplicities.back() == 0, ExcInternalError());
+          fe_list.pop_back();
+          multiplicities.pop_back();
+        }
+
+      return multiply_dof_numbers(fe_list, multiplicities);
     }
 
 
@@ -249,12 +248,22 @@ namespace FETools
     {
       AssertDimension(fes.size(), multiplicities.size());
 
+      const ReferenceCell reference_cell = fes.front()->reference_cell();
+      Assert(std::all_of(fes.begin(),
+                         fes.end(),
+                         [reference_cell](
+                           const FiniteElement<dim, spacedim> *fe) {
+                           return fe->reference_cell() == reference_cell;
+                         }),
+             ExcMessage("You cannot combine finite elements defined on "
+                        "different reference cells into a combined element "
+                        "such as an FESystem or FE_Enriched object."));
+
       // first count the number of dofs and components that will emerge from the
       // given FEs
       unsigned int n_shape_functions = 0;
       for (unsigned int i = 0; i < fes.size(); ++i)
-        if (multiplicities[i] > 0) // check needed as FE might be nullptr
-          n_shape_functions += fes[i]->n_dofs_per_cell() * multiplicities[i];
+        n_shape_functions += fes[i]->n_dofs_per_cell() * multiplicities[i];
 
       // generate the array that will hold the output
       std::vector<bool> retval(n_shape_functions, false);
@@ -268,8 +277,7 @@ namespace FETools
       // for each shape function, copy the flags from the base element to this
       // one, taking into account multiplicities, and other complications
       unsigned int total_index = 0;
-      for (const unsigned int vertex_number :
-           fes.front()->reference_cell().vertex_indices())
+      for (const unsigned int vertex_number : reference_cell.vertex_indices())
         {
           for (unsigned int base = 0; base < fes.size(); ++base)
             for (unsigned int m = 0; m < multiplicities[base]; ++m)
@@ -289,8 +297,7 @@ namespace FETools
         }
 
       // 2. Lines
-      for (const unsigned int line_number :
-           fes.front()->reference_cell().line_indices())
+      for (const unsigned int line_number : reference_cell.line_indices())
         {
           for (unsigned int base = 0; base < fes.size(); ++base)
             for (unsigned int m = 0; m < multiplicities[base]; ++m)
@@ -312,9 +319,7 @@ namespace FETools
       // 3. Quads
       for (unsigned int quad_number = 0;
            quad_number <
-           (dim == 2 ?
-              1 :
-              (dim == 3 ? fes.front()->reference_cell().n_faces() : 0));
+           (dim == 2 ? 1 : (dim == 3 ? reference_cell.n_faces() : 0));
            ++quad_number)
         {
           for (unsigned int base = 0; base < fes.size(); ++base)
@@ -379,23 +384,19 @@ namespace FETools
       const FiniteElement<dim, spacedim> *fe5,
       const unsigned int                  N5)
     {
-      std::vector<const FiniteElement<dim, spacedim> *> fe_list;
-      std::vector<unsigned int>                         multiplicities;
+      std::vector<const FiniteElement<dim, spacedim> *> fe_list = {
+        fe1, fe2, fe3, fe4, fe5};
+      std::vector<unsigned int> multiplicities = {N1, N2, N3, N4, N5};
 
-      fe_list.push_back(fe1);
-      multiplicities.push_back(N1);
+      // This function is occasionally called with nullptr values for the
+      // finite elements. Drop those again.
+      while ((fe_list.size() > 0) && (fe_list.back() == nullptr))
+        {
+          Assert(multiplicities.back() == 0, ExcInternalError());
+          fe_list.pop_back();
+          multiplicities.pop_back();
+        }
 
-      fe_list.push_back(fe2);
-      multiplicities.push_back(N2);
-
-      fe_list.push_back(fe3);
-      multiplicities.push_back(N3);
-
-      fe_list.push_back(fe4);
-      multiplicities.push_back(N4);
-
-      fe_list.push_back(fe5);
-      multiplicities.push_back(N5);
       return compute_restriction_is_additive_flags(fe_list, multiplicities);
     }
 
@@ -413,34 +414,38 @@ namespace FETools
         fes.size() > 0,
         ExcMessage(
           "This function only makes sense if at least one FiniteElement is provided."));
+
+      const ReferenceCell reference_cell = fes.front()->reference_cell();
+      Assert(std::all_of(fes.begin(),
+                         fes.end(),
+                         [reference_cell](
+                           const FiniteElement<dim, spacedim> *fe) {
+                           return fe->reference_cell() == reference_cell;
+                         }),
+             ExcMessage("You cannot combine finite elements defined on "
+                        "different reference cells into a combined element "
+                        "such as an FESystem or FE_Enriched object."));
+
       // first count the number of dofs and components that will emerge from the
       // given FEs
       unsigned int n_shape_functions = 0;
       for (unsigned int i = 0; i < fes.size(); ++i)
-        if (multiplicities[i] > 0) // needed because FE might be nullptr
-          n_shape_functions += fes[i]->n_dofs_per_cell() * multiplicities[i];
+        n_shape_functions += fes[i]->n_dofs_per_cell() * multiplicities[i];
 
       unsigned int n_components = 0;
       if (do_tensor_product)
         {
           for (unsigned int i = 0; i < fes.size(); ++i)
-            if (multiplicities[i] > 0) // needed because FE might be nullptr
-              n_components += fes[i]->n_components() * multiplicities[i];
+            n_components += fes[i]->n_components() * multiplicities[i];
         }
       else
         {
-          for (unsigned int i = 0; i < fes.size(); ++i)
-            if (multiplicities[i] > 0) // needed because FE might be nullptr
-              {
-                n_components = fes[i]->n_components();
-                break;
-              }
+          n_components = fes[0]->n_components();
+
           // Now check that all FEs have the same number of components:
           for (unsigned int i = 0; i < fes.size(); ++i)
-            if (multiplicities[i] > 0) // needed because FE might be nullptr
-              Assert(n_components == fes[i]->n_components(),
-                     ExcDimensionMismatch(n_components,
-                                          fes[i]->n_components()));
+            Assert(n_components == fes[i]->n_components(),
+                   ExcDimensionMismatch(n_components, fes[i]->n_components()));
         }
 
       // generate the array that will hold the output
@@ -458,8 +463,7 @@ namespace FETools
       // to this one, taking into account multiplicities, multiple components in
       // base elements, and other complications
       unsigned int total_index = 0;
-      for (const unsigned int vertex_number :
-           fes.front()->reference_cell().vertex_indices())
+      for (const unsigned int vertex_number : reference_cell.vertex_indices())
         {
           unsigned int comp_start = 0;
           for (unsigned int base = 0; base < fes.size(); ++base)
@@ -491,8 +495,7 @@ namespace FETools
         }
 
       // 2. Lines
-      for (const unsigned int line_number :
-           fes.front()->reference_cell().line_indices())
+      for (const unsigned int line_number : reference_cell.line_indices())
         {
           unsigned int comp_start = 0;
           for (unsigned int base = 0; base < fes.size(); ++base)
@@ -526,9 +529,7 @@ namespace FETools
       // 3. Quads
       for (unsigned int quad_number = 0;
            quad_number <
-           (dim == 2 ?
-              1 :
-              (dim == 3 ? fes.front()->reference_cell().n_faces() : 0));
+           (dim == 2 ? 1 : (dim == 3 ? reference_cell.n_faces() : 0));
            ++quad_number)
         {
           unsigned int comp_start = 0;
@@ -621,23 +622,18 @@ namespace FETools
                                const unsigned int                  N5,
                                const bool do_tensor_product)
     {
-      std::vector<const FiniteElement<dim, spacedim> *> fe_list;
-      std::vector<unsigned int>                         multiplicities;
+      std::vector<const FiniteElement<dim, spacedim> *> fe_list = {
+        fe1, fe2, fe3, fe4, fe5};
+      std::vector<unsigned int> multiplicities = {N1, N2, N3, N4, N5};
 
-      fe_list.push_back(fe1);
-      multiplicities.push_back(N1);
-
-      fe_list.push_back(fe2);
-      multiplicities.push_back(N2);
-
-      fe_list.push_back(fe3);
-      multiplicities.push_back(N3);
-
-      fe_list.push_back(fe4);
-      multiplicities.push_back(N4);
-
-      fe_list.push_back(fe5);
-      multiplicities.push_back(N5);
+      // This function is occasionally called with nullptr values for the
+      // finite elements. Drop those again.
+      while ((fe_list.size() > 0) && (fe_list.back() == nullptr))
+        {
+          Assert(multiplicities.back() == 0, ExcInternalError());
+          fe_list.pop_back();
+          multiplicities.pop_back();
+        }
 
       return compute_nonzero_components(fe_list,
                                         multiplicities,

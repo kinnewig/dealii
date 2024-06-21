@@ -19,7 +19,6 @@
 // step-37, step-48, and step-59
 #include <deal.II/base/conditional_ostream.h>
 #include <deal.II/base/function.h>
-#include <deal.II/base/logstream.h>
 #include <deal.II/base/timer.h>
 #include <deal.II/base/time_stepping.h>
 #include <deal.II/base/utilities.h>
@@ -1717,8 +1716,7 @@ namespace Euler_DG
         // speed only on the valid cells of a cell batch.
         for (unsigned int v = 0; v < data.n_active_entries_per_cell_batch(cell);
              ++v)
-          for (unsigned int d = 0; d < 3; ++d)
-            max_transport = std::max(max_transport, local_max[v]);
+          max_transport = std::max(max_transport, local_max[v]);
       }
 
     max_transport = Utilities::MPI::max(max_transport, MPI_COMM_WORLD);
@@ -2303,8 +2301,6 @@ int main(int argc, char **argv)
 
   try
     {
-      deallog.depth_console(0);
-
       EulerProblem<dimension> euler_problem;
       euler_problem.run();
     }

@@ -393,7 +393,7 @@ namespace internal
 
               bool do_zero = false;
               for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
-                if (matrix_other(i, j) != 0.)
+                if (std::fabs(matrix_other(i, j)) > 1e-12)
                   do_zero = true;
 
               if (do_zero)
@@ -491,10 +491,12 @@ namespace internal
       const std::function<bool()> &has_children_function,
       const std::function<void(std::vector<types::global_dof_index> &)>
                                           &get_dof_indices_function,
-      const std::function<unsigned int()> &active_fe_index_function)
+      const std::function<unsigned int()> &active_fe_index_function,
+      const std::function<std::uint8_t()> &refinement_case_function)
       : has_children_function(has_children_function)
       , get_dof_indices_function(get_dof_indices_function)
       , active_fe_index_function(active_fe_index_function)
+      , refinement_case_function(refinement_case_function)
     {}
 
     /**
@@ -522,6 +524,14 @@ namespace internal
     {
       return active_fe_index_function();
     }
+    /**
+     * Get refinement choice.
+     */
+    std::uint8_t
+    refinement_case() const
+    {
+      return refinement_case_function();
+    }
 
   private:
     /**
@@ -539,6 +549,11 @@ namespace internal
      * Lambda function returning active FE index.
      */
     const std::function<unsigned int()> active_fe_index_function;
+
+    /**
+     * Lambda function returning the refinement choice.
+     */
+    const std::function<std::uint8_t()> refinement_case_function;
   };
 
 
@@ -616,6 +631,10 @@ namespace internal
           else
             return cell->as_dof_handler_level_iterator(this->dof_handler_fine)
               ->active_fe_index();
+        },
+        []() {
+          DEAL_II_ASSERT_UNREACHABLE();
+          return 0;
         });
     }
 
@@ -631,6 +650,10 @@ namespace internal
           return false;
         },
         [](auto &) { DEAL_II_ASSERT_UNREACHABLE(); },
+        []() {
+          DEAL_II_ASSERT_UNREACHABLE();
+          return 0;
+        },
         []() {
           DEAL_II_ASSERT_UNREACHABLE();
           return 0;
@@ -707,6 +730,10 @@ namespace internal
             {
               return cell->active_fe_index();
             }
+        },
+        []() {
+          DEAL_II_ASSERT_UNREACHABLE(); // only children have the correct info
+          return 0;
         });
     }
 
@@ -747,6 +774,20 @@ namespace internal
           else
             {
               return cell->child(c)->active_fe_index();
+            }
+        },
+        [this, cell]() {
+          if (this->mg_level_fine == numbers::invalid_unsigned_int)
+            {
+              const auto cell_id = cell->id();
+              const auto cell_raw =
+                dof_handler_fine.get_triangulation().create_cell_iterator(
+                  cell_id);
+              return cell_raw->refinement_case();
+            }
+          else
+            {
+              return cell->refinement_case();
             }
         });
     }
@@ -893,6 +934,10 @@ namespace internal
                   cell->get_mg_dof_indices(indices);
 
                 buffer.push_back(cell->active_fe_index());
+                if (cell->level() != 0)
+                  buffer.push_back(cell->parent()->refinement_case());
+                else
+                  buffer.push_back(numbers::invalid_dof_index);
                 buffer.insert(buffer.end(), indices.begin(), indices.end());
               }
 
@@ -962,13 +1007,16 @@ namespace internal
             for (unsigned int i = 0, k = 0; i < ids.size(); ++i)
               {
                 const unsigned int active_fe_index = buffer[k++];
-
+                const std::uint8_t refinement_case =
+                  static_cast<std::uint8_t>(buffer[k++]);
                 indices.resize(
                   dof_handler_fine.get_fe(active_fe_index).n_dofs_per_cell());
 
                 for (unsigned int j = 0; j < indices.size(); ++j, ++k)
                   indices[j] = buffer[k];
-                map[ids[i]] = {active_fe_index, indices};
+                remote_cell_info_map[ids[i]] = {active_fe_index,
+                                                indices,
+                                                refinement_case};
               }
           }
 
@@ -991,7 +1039,7 @@ namespace internal
 
       const bool is_cell_locally_owned =
         this->is_dst_locally_owned.is_element(id);
-      const bool is_cell_remotly_owned = this->is_dst_remote.is_element(id);
+      const bool is_cell_remotely_owned = this->is_dst_remote.is_element(id);
 
       const bool has_cell_any_children = [&]() {
         for (unsigned int i = 0; i < GeometryInfo<dim>::max_children_per_cell;
@@ -1006,7 +1054,7 @@ namespace internal
               return true;
           }
 
-        AssertThrow(is_cell_locally_owned || is_cell_remotly_owned,
+        AssertThrow(is_cell_locally_owned || is_cell_remotely_owned,
                     ExcInternalError());
 
         return false;
@@ -1014,7 +1062,7 @@ namespace internal
 
       return FineDoFHandlerViewCell(
         [has_cell_any_children]() { return has_cell_any_children; },
-        [cell, is_cell_locally_owned, is_cell_remotly_owned, id, this](
+        [cell, is_cell_locally_owned, is_cell_remotely_owned, id, this](
           auto &dof_indices) {
           if (is_cell_locally_owned)
             {
@@ -1027,16 +1075,16 @@ namespace internal
               else
                 cell_fine->get_mg_dof_indices(dof_indices);
             }
-          else if (is_cell_remotly_owned)
+          else if (is_cell_remotely_owned)
             {
-              dof_indices = map.at(id).second;
+              dof_indices = std::get<1>(remote_cell_info_map.at(id));
             }
           else
             {
               AssertThrow(false, ExcNotImplemented()); // should not happen!
             }
         },
-        [cell, is_cell_locally_owned, is_cell_remotly_owned, id, this]()
+        [cell, is_cell_locally_owned, is_cell_remotely_owned, id, this]()
           -> unsigned int {
           if (is_cell_locally_owned)
             {
@@ -1046,15 +1094,20 @@ namespace internal
                         &dof_handler_fine))
                 ->active_fe_index();
             }
-          else if (is_cell_remotly_owned)
+          else if (is_cell_remotely_owned)
             {
-              return map.at(id).first;
+              return std::get<0>(remote_cell_info_map.at(id));
             }
           else
             {
               AssertThrow(false, ExcNotImplemented()); // should not happen!
               return 0;
             }
+        },
+        []() -> std::uint8_t {
+          AssertThrow(false,
+                      ExcNotImplemented()); // only children hold correct info
+          return 0;
         });
     }
 
@@ -1093,7 +1146,7 @@ namespace internal
             }
           else if (is_cell_remotely_owned)
             {
-              dof_indices = map.at(id).second;
+              dof_indices = std::get<1>(remote_cell_info_map.at(id));
             }
           else
             {
@@ -1106,6 +1159,33 @@ namespace internal
                                                    // children
 
           return 0;
+        },
+        [cell, is_cell_locally_owned, is_cell_remotely_owned, id, this]() {
+          if (is_cell_locally_owned &&
+              (mg_level_fine == numbers::invalid_unsigned_int))
+            {
+              const auto cell_fine = (typename DoFHandler<dim>::cell_iterator(
+                *dof_handler_fine.get_triangulation().create_cell_iterator(
+                  cell->id()),
+                &dof_handler_fine));
+              return cell_fine->refinement_case();
+            }
+          else if (is_cell_locally_owned)
+            {
+              return cell->refinement_case();
+            }
+
+          else if (is_cell_remotely_owned)
+            {
+              return RefinementCase<dim>(
+                std::get<2>(remote_cell_info_map.at(id)));
+            }
+          else
+            {
+              AssertThrow(false, ExcNotImplemented());
+            }
+          // return no refinement
+          return RefinementCase<dim>(0);
         });
     }
 
@@ -1124,8 +1204,10 @@ namespace internal
     IndexSet is_src_locally_owned;
 
     std::map<types::global_cell_index,
-             std::pair<unsigned int, std::vector<types::global_dof_index>>>
-      map;
+             std::tuple<unsigned int,
+                        std::vector<types::global_dof_index>,
+                        std::uint8_t>>
+      remote_cell_info_map;
   };
 
   template <int dim>
@@ -1356,13 +1438,21 @@ namespace internal
                   dof_handler_fine.get_triangulation().create_cell_iterator(
                     cell_id);
 
-                if (cell_fine->has_children() == false)
+                if (cell_fine->is_active())
                   {
                     if (cell_fine->subdomain_id() != cell->subdomain_id())
                       flag = false;
                   }
                 else
                   {
+                    Assert(
+                      cell_fine->child(0)->is_active(),
+                      ExcMessage(
+                        "In building a transfer operator, we are "
+                        "expecting that a cell is not or at most once refined "
+                        "on the other multigrid level. But it is refined more than once. "
+                        "Are you trying to build a transfer operator across "
+                        "more than one level of mesh refinement?"));
                     if (cell_fine->child(0)->subdomain_id() !=
                         cell->subdomain_id())
                       flag = false;
@@ -1615,10 +1705,16 @@ namespace internal
       AssertDimension(min_active_fe_indices[0], max_active_fe_indices[0]);
       AssertDimension(min_active_fe_indices[1], max_active_fe_indices[1]);
 
-      // set up two mg-schemes
+      const auto reference_cell = dof_handler_fine.get_fe(0).reference_cell();
+      // set up mg-schemes
       //   (0) no refinement -> identity
       //   (1) h-refinement
-      transfer.schemes.resize(2);
+      //   (2) h-refinement chocie II <- e.g. for Tets
+      //    .
+      //    .
+      //    .
+      transfer.schemes.resize(1 +
+                              reference_cell.n_isotropic_refinement_choices());
 
       const unsigned int fe_index_fine   = min_active_fe_indices[0];
       const unsigned int fe_index_coarse = min_active_fe_indices[1];
@@ -1630,8 +1726,6 @@ namespace internal
       AssertDimension(fe_fine.n_components(), fe_coarse.n_components());
 
       transfer.n_components = fe_fine.n_components();
-
-      const auto reference_cell = dof_handler_fine.get_fe(0).reference_cell();
 
       // helper function: to process the fine level cells; function @p fu_non_refined is
       // performed on cells that are not refined and @fu_refined is performed on
@@ -1680,43 +1774,74 @@ namespace internal
       AssertDimension(fe_coarse.n_dofs_per_cell(), fe_fine.n_dofs_per_cell());
 
 
-      const bool is_feq =
-        fe_fine.n_base_elements() == 1 &&
-        (dynamic_cast<const FE_Q<dim> *>(&fe_fine.base_element(0)) != nullptr);
+      const bool is_feq = fe_fine.n_base_elements() == 1 &&
+                          ((dynamic_cast<const FE_Q<dim> *>(
+                              &fe_fine.base_element(0)) != nullptr));
 
-      // number of dofs on coarse and fine cells
-      transfer.schemes[0].n_dofs_per_cell_coarse =
-        transfer.schemes[0].n_dofs_per_cell_fine =
-          transfer.schemes[1].n_dofs_per_cell_coarse =
-            fe_coarse.n_dofs_per_cell();
-      transfer.schemes[1].n_dofs_per_cell_fine =
-        is_feq ? (fe_fine.n_components() *
-                  Utilities::pow(2 * fe_fine.degree + 1, dim)) :
-                 (fe_coarse.n_dofs_per_cell() *
-                  GeometryInfo<dim>::max_children_per_cell);
+      for (auto &scheme : transfer.schemes)
+        {
+          // number of dofs on coarse and fine cells
+          scheme.n_dofs_per_cell_coarse = fe_coarse.n_dofs_per_cell();
+          scheme.n_dofs_per_cell_fine =
+            is_feq ? (fe_fine.n_components() *
+                      Utilities::pow(2 * fe_fine.degree + 1, dim)) :
+                     (fe_coarse.n_dofs_per_cell() *
+                      GeometryInfo<dim>::max_children_per_cell);
 
-      // degree of FE on coarse and fine cell
-      transfer.schemes[0].degree_coarse   = transfer.schemes[0].degree_fine =
-        transfer.schemes[1].degree_coarse = fe_coarse.degree;
-      transfer.schemes[1].degree_fine =
-        is_feq ? (fe_coarse.degree * 2) : (fe_coarse.degree * 2 + 1);
+          // degree of FE on coarse and fine cell
+          scheme.degree_coarse = fe_coarse.degree;
+          scheme.degree_fine =
+            is_feq ? (fe_coarse.degree * 2) : (fe_coarse.degree * 2 + 1);
+
+          // reset number of coarse cells
+          scheme.n_coarse_cells = 0;
+        }
+      // correct for first scheme
+      transfer.schemes[0].n_dofs_per_cell_fine = fe_coarse.n_dofs_per_cell();
+      transfer.schemes[0].degree_fine          = fe_coarse.degree;
 
       // continuous or discontinuous
-      transfer.fine_element_is_continuous = fe_fine.n_dofs_per_vertex() > 0;
+      transfer.fine_element_is_continuous  = fe_fine.n_dofs_per_vertex() > 0;
+      std::uint8_t current_refinement_case = static_cast<std::uint8_t>(-1);
 
-      // count coarse cells for each scheme (0, 1)
+      // count coarse cells for each scheme (0, 1, ...)
       {
-        transfer.schemes[0].n_coarse_cells = 0; // reset
-        transfer.schemes[1].n_coarse_cells = 0;
-
         // count by looping over all coarse cells
         process_cells(
           [&](const auto &, const auto &) {
             transfer.schemes[0].n_coarse_cells++;
           },
-          [&](const auto &, const auto &, const auto c) {
+          [&](const auto &, const auto &cell_fine, const auto c) {
+            std::uint8_t refinement_case = cell_fine.refinement_case();
+            // Assert triggers if cell has no children
+            if (reference_cell == ReferenceCells::Tetrahedron)
+              Assert(RefinementCase<dim>(refinement_case) ==
+                         RefinementCase<dim>(static_cast<std::uint8_t>(
+                           IsotropicRefinementChoice::cut_tet_68)) ||
+                       RefinementCase<dim>(refinement_case) ==
+                         RefinementCase<dim>(static_cast<std::uint8_t>(
+                           IsotropicRefinementChoice::cut_tet_57)) ||
+                       RefinementCase<dim>(refinement_case) ==
+                         RefinementCase<dim>(static_cast<std::uint8_t>(
+                           IsotropicRefinementChoice::cut_tet_49)),
+                     ExcNotImplemented());
+            else
+              {
+                Assert(RefinementCase<dim>(refinement_case) ==
+                         RefinementCase<dim>::isotropic_refinement,
+                       ExcNotImplemented());
+                refinement_case = 1;
+              }
+
             if (c == 0)
-              transfer.schemes[1].n_coarse_cells++;
+              {
+                transfer.schemes[refinement_case].n_coarse_cells++;
+                current_refinement_case = refinement_case;
+              }
+            else
+              // Check that all children have the same refinement case
+              AssertThrow(current_refinement_case == refinement_case,
+                          ExcNotImplemented());
           });
       }
 
@@ -1778,18 +1903,19 @@ namespace internal
           }
 
         // ------------------------------ indices ------------------------------
-        std::vector<types::global_dof_index> level_dof_indices_fine_0(
+        std::vector<types::global_dof_index> level_dof_indices_coarse(
           transfer.schemes[0].n_dofs_per_cell_fine);
-        std::vector<types::global_dof_index> level_dof_indices_fine_1(
+        std::vector<types::global_dof_index> level_dof_indices_fine(
           transfer.schemes[1].n_dofs_per_cell_fine);
 
-        unsigned int cell_no_0 = 0;
-        unsigned int cell_no_1 = transfer.schemes[0].n_coarse_cells;
+
+        unsigned int n_coarse_cells_total = 0;
+        for (const auto &scheme : transfer.schemes)
+          n_coarse_cells_total += scheme.n_coarse_cells;
 
         transfer.constraint_info_coarse.reinit(
           dof_handler_coarse,
-          transfer.schemes[0].n_coarse_cells +
-            transfer.schemes[1].n_coarse_cells,
+          n_coarse_cells_total,
           constraints_coarse.n_constraints() > 0 &&
             use_fast_hanging_node_algorithm(dof_handler_coarse,
                                             mg_level_coarse));
@@ -1798,20 +1924,24 @@ namespace internal
             dof_handler_coarse.locally_owned_dofs() :
             dof_handler_coarse.locally_owned_mg_dofs(mg_level_coarse));
 
-        transfer.constraint_info_fine.reinit(
-          transfer.schemes[0].n_coarse_cells +
-          transfer.schemes[1].n_coarse_cells);
+        transfer.constraint_info_fine.reinit(n_coarse_cells_total);
         transfer.constraint_info_fine.set_locally_owned_indices(
           (mg_level_fine == numbers::invalid_unsigned_int) ?
             dof_handler_fine.locally_owned_dofs() :
             dof_handler_fine.locally_owned_mg_dofs(mg_level_fine));
 
+
+        std::vector<unsigned int> cell_no(transfer.schemes.size(), 0);
+        for (unsigned int i = 1; i < transfer.schemes.size(); ++i)
+          cell_no[i] = cell_no[i - 1] + transfer.schemes[i - 1].n_coarse_cells;
+
         process_cells(
           [&](const auto &cell_coarse, const auto &cell_fine) {
+            // first process cells with scheme 0
             // parent
             {
               transfer.constraint_info_coarse.read_dof_indices(
-                cell_no_0,
+                cell_no[0],
                 mg_level_coarse,
                 cell_coarse,
                 constraints_coarse,
@@ -1824,51 +1954,56 @@ namespace internal
               for (unsigned int i = 0;
                    i < transfer.schemes[0].n_dofs_per_cell_coarse;
                    i++)
-                level_dof_indices_fine_0[i] =
+                level_dof_indices_coarse[i] =
                   local_dof_indices[lexicographic_numbering_fine[i]];
 
               transfer.constraint_info_fine.read_dof_indices(
-                cell_no_0, level_dof_indices_fine_0, {});
+                cell_no[0], level_dof_indices_coarse, {});
             }
 
             // move pointers
             {
-              cell_no_0++;
+              ++cell_no[0];
             }
           },
           [&](const auto &cell_coarse, const auto &cell_fine, const auto c) {
+            // process rest of cells
+            const std::uint8_t refinement_case =
+              reference_cell == ReferenceCells::Tetrahedron ?
+                cell_fine.refinement_case() :
+                1;
             // parent (only once at the beginning)
             if (c == 0)
               {
                 transfer.constraint_info_coarse.read_dof_indices(
-                  cell_no_1,
+                  cell_no[refinement_case],
                   mg_level_coarse,
                   cell_coarse,
                   constraints_coarse,
                   {});
 
-                level_dof_indices_fine_1.assign(level_dof_indices_fine_1.size(),
-                                                numbers::invalid_dof_index);
+                level_dof_indices_fine.assign(level_dof_indices_fine.size(),
+                                              numbers::invalid_dof_index);
               }
 
             // child
             {
               cell_fine.get_dof_indices(local_dof_indices);
               for (unsigned int i = 0;
-                   i < transfer.schemes[1].n_dofs_per_cell_coarse;
+                   i < transfer.schemes[refinement_case].n_dofs_per_cell_coarse;
                    ++i)
                 {
                   const auto index =
                     local_dof_indices[lexicographic_numbering_fine[i]];
+                  Assert(
+                    level_dof_indices_fine[cell_local_children_indices[c][i]] ==
+                        numbers::invalid_dof_index ||
+                      level_dof_indices_fine[cell_local_children_indices[c]
+                                                                        [i]] ==
+                        index,
+                    ExcInternalError());
 
-                  Assert(level_dof_indices_fine_1
-                               [cell_local_children_indices[c][i]] ==
-                             numbers::invalid_dof_index ||
-                           level_dof_indices_fine_1
-                               [cell_local_children_indices[c][i]] == index,
-                         ExcInternalError());
-
-                  level_dof_indices_fine_1[cell_local_children_indices[c][i]] =
+                  level_dof_indices_fine[cell_local_children_indices[c][i]] =
                     index;
                 }
             }
@@ -1877,9 +2012,9 @@ namespace internal
             if (c + 1 == GeometryInfo<dim>::max_children_per_cell)
               {
                 transfer.constraint_info_fine.read_dof_indices(
-                  cell_no_1, level_dof_indices_fine_1, {});
+                  cell_no[refinement_case], level_dof_indices_fine, {});
 
-                cell_no_1++;
+                ++cell_no[refinement_case];
               }
           });
       }
@@ -1900,117 +2035,133 @@ namespace internal
       // nothing to do since for identity prolongation matrices a short-cut
       // code path is used during prolongation/restriction
 
-      // ----------------------- prolongation matrix (1) -----------------------
+      // -------------------prolongation matrix (i = 1 ... n)-------------------
       {
         AssertDimension(fe_fine.n_base_elements(), 1);
-        if (reference_cell == ReferenceCells::get_hypercube<dim>())
+        for (unsigned int transfer_scheme_index = 1;
+             transfer_scheme_index < transfer.schemes.size();
+             ++transfer_scheme_index)
           {
-            const auto fe = create_1D_fe(fe_fine.base_element(0));
+            if (reference_cell == ReferenceCells::get_hypercube<dim>())
+              {
+                const auto fe = create_1D_fe(fe_fine.base_element(0));
 
-            std::vector<unsigned int> renumbering(fe->n_dofs_per_cell());
-            {
-              AssertIndexRange(fe->n_dofs_per_vertex(), 2);
-              renumbering[0] = 0;
-              for (unsigned int i = 0; i < fe->dofs_per_line; ++i)
-                renumbering[i + fe->n_dofs_per_vertex()] =
-                  GeometryInfo<1>::vertices_per_cell * fe->n_dofs_per_vertex() +
-                  i;
-              if (fe->n_dofs_per_vertex() > 0)
-                renumbering[fe->n_dofs_per_cell() - fe->n_dofs_per_vertex()] =
-                  fe->n_dofs_per_vertex();
-            }
-
-            // TODO: data structures are saved in form of DG data structures
-            // here
-            const unsigned int shift =
-              is_feq ? (fe->n_dofs_per_cell() - fe->n_dofs_per_vertex()) :
-                       (fe->n_dofs_per_cell());
-            const unsigned int n_child_dofs_1d =
-              is_feq ? (fe->n_dofs_per_cell() * 2 - fe->n_dofs_per_vertex()) :
-                       (fe->n_dofs_per_cell() * 2);
-
-            {
-              transfer.schemes[1].prolongation_matrix_1d.resize(
-                fe->n_dofs_per_cell() * n_child_dofs_1d);
-
-              for (unsigned int c = 0;
-                   c < GeometryInfo<1>::max_children_per_cell;
-                   ++c)
-                for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
-                  for (unsigned int j = 0; j < fe->n_dofs_per_cell(); ++j)
-                    transfer.schemes[1]
-                      .prolongation_matrix_1d[i * n_child_dofs_1d + j +
-                                              c * shift] =
-                      fe->get_prolongation_matrix(c)(renumbering[j],
-                                                     renumbering[i]);
-            }
-            {
-              transfer.schemes[1].restriction_matrix_1d.resize(
-                fe->n_dofs_per_cell() * n_child_dofs_1d);
-
-              for (unsigned int c = 0;
-                   c < GeometryInfo<1>::max_children_per_cell;
-                   ++c)
+                std::vector<unsigned int> renumbering(fe->n_dofs_per_cell());
                 {
-                  const auto matrix = get_restriction_matrix(*fe, c);
-                  for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
-                    for (unsigned int j = 0; j < fe->n_dofs_per_cell(); ++j)
-                      transfer.schemes[1]
-                        .restriction_matrix_1d[i * n_child_dofs_1d + j +
-                                               c * shift] +=
-                        matrix(renumbering[i], renumbering[j]);
+                  AssertIndexRange(fe->n_dofs_per_vertex(), 2);
+                  renumbering[0] = 0;
+                  for (unsigned int i = 0; i < fe->dofs_per_line; ++i)
+                    renumbering[i + fe->n_dofs_per_vertex()] =
+                      GeometryInfo<1>::vertices_per_cell *
+                        fe->n_dofs_per_vertex() +
+                      i;
+                  if (fe->n_dofs_per_vertex() > 0)
+                    renumbering[fe->n_dofs_per_cell() -
+                                fe->n_dofs_per_vertex()] =
+                      fe->n_dofs_per_vertex();
                 }
-            }
-          }
-        else
-          {
-            const auto        &fe              = fe_fine.base_element(0);
-            const unsigned int n_dofs_per_cell = fe.n_dofs_per_cell();
 
-            {
-              transfer.schemes[1].prolongation_matrix.resize(
-                n_dofs_per_cell * n_dofs_per_cell *
-                GeometryInfo<dim>::max_children_per_cell);
+                // TODO: data structures are saved in form of DG data structures
+                // here
+                const unsigned int shift =
+                  is_feq ? (fe->n_dofs_per_cell() - fe->n_dofs_per_vertex()) :
+                           (fe->n_dofs_per_cell());
+                const unsigned int n_child_dofs_1d =
+                  is_feq ?
+                    (fe->n_dofs_per_cell() * 2 - fe->n_dofs_per_vertex()) :
+                    (fe->n_dofs_per_cell() * 2);
 
-              for (unsigned int c = 0;
-                   c < GeometryInfo<dim>::max_children_per_cell;
-                   ++c)
                 {
-                  const auto matrix =
-                    reference_cell == ReferenceCells::Tetrahedron ?
-                      fe.get_prolongation_matrix(c, RefinementCase<dim>(1)) :
-                      fe.get_prolongation_matrix(c);
+                  transfer.schemes[transfer_scheme_index]
+                    .prolongation_matrix_1d.resize(fe->n_dofs_per_cell() *
+                                                   n_child_dofs_1d);
 
-
-                  for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
-                    for (unsigned int j = 0; j < n_dofs_per_cell; ++j)
-                      transfer.schemes[1].prolongation_matrix
-                        [i * n_dofs_per_cell *
-                           GeometryInfo<dim>::max_children_per_cell +
-                         j + c * n_dofs_per_cell] = matrix(j, i);
+                  for (unsigned int c = 0;
+                       c < GeometryInfo<1>::max_children_per_cell;
+                       ++c)
+                    for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
+                      for (unsigned int j = 0; j < fe->n_dofs_per_cell(); ++j)
+                        transfer.schemes[transfer_scheme_index]
+                          .prolongation_matrix_1d[i * n_child_dofs_1d + j +
+                                                  c * shift] =
+                          fe->get_prolongation_matrix(c)(renumbering[j],
+                                                         renumbering[i]);
                 }
-            }
-            {
-              transfer.schemes[1].restriction_matrix.resize(
-                n_dofs_per_cell * n_dofs_per_cell *
-                GeometryInfo<dim>::max_children_per_cell);
-
-              for (unsigned int c = 0;
-                   c < GeometryInfo<dim>::max_children_per_cell;
-                   ++c)
                 {
-                  const auto matrix =
-                    reference_cell == ReferenceCells::Tetrahedron ?
-                      get_restriction_matrix(fe, c, RefinementCase<dim>(1)) :
-                      get_restriction_matrix(fe, c);
-                  for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
-                    for (unsigned int j = 0; j < n_dofs_per_cell; ++j)
-                      transfer.schemes[1].restriction_matrix
-                        [i * n_dofs_per_cell *
-                           GeometryInfo<dim>::max_children_per_cell +
-                         j + c * n_dofs_per_cell] += matrix(i, j);
+                  transfer.schemes[transfer_scheme_index]
+                    .restriction_matrix_1d.resize(fe->n_dofs_per_cell() *
+                                                  n_child_dofs_1d);
+
+                  for (unsigned int c = 0;
+                       c < GeometryInfo<1>::max_children_per_cell;
+                       ++c)
+                    {
+                      const auto matrix = get_restriction_matrix(*fe, c);
+                      for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
+                        for (unsigned int j = 0; j < fe->n_dofs_per_cell(); ++j)
+                          transfer.schemes[transfer_scheme_index]
+                            .restriction_matrix_1d[i * n_child_dofs_1d + j +
+                                                   c * shift] +=
+                            matrix(renumbering[i], renumbering[j]);
+                    }
                 }
-            }
+              }
+            else
+              {
+                const auto        &fe              = fe_fine.base_element(0);
+                const unsigned int n_dofs_per_cell = fe.n_dofs_per_cell();
+
+                {
+                  transfer.schemes[transfer_scheme_index]
+                    .prolongation_matrix.resize(
+                      n_dofs_per_cell * n_dofs_per_cell *
+                      GeometryInfo<dim>::max_children_per_cell);
+
+                  for (unsigned int c = 0;
+                       c < GeometryInfo<dim>::max_children_per_cell;
+                       ++c)
+                    {
+                      const auto matrix =
+                        reference_cell == ReferenceCells::Tetrahedron ?
+                          fe.get_prolongation_matrix(
+                            c, RefinementCase<dim>(transfer_scheme_index)) :
+                          fe.get_prolongation_matrix(c);
+
+
+                      for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
+                        for (unsigned int j = 0; j < n_dofs_per_cell; ++j)
+                          transfer.schemes[transfer_scheme_index]
+                            .prolongation_matrix
+                              [i * n_dofs_per_cell *
+                                 GeometryInfo<dim>::max_children_per_cell +
+                               j + c * n_dofs_per_cell] = matrix(j, i);
+                    }
+                }
+                {
+                  transfer.schemes[transfer_scheme_index]
+                    .restriction_matrix.resize(
+                      n_dofs_per_cell * n_dofs_per_cell *
+                      GeometryInfo<dim>::max_children_per_cell);
+
+                  for (unsigned int c = 0;
+                       c < GeometryInfo<dim>::max_children_per_cell;
+                       ++c)
+                    {
+                      const auto matrix =
+                        reference_cell == ReferenceCells::Tetrahedron ?
+                          get_restriction_matrix(
+                            fe, c, RefinementCase<dim>(transfer_scheme_index)) :
+                          get_restriction_matrix(fe, c);
+                      for (unsigned int i = 0; i < n_dofs_per_cell; ++i)
+                        for (unsigned int j = 0; j < n_dofs_per_cell; ++j)
+                          transfer.schemes[transfer_scheme_index]
+                            .restriction_matrix
+                              [i * n_dofs_per_cell *
+                                 GeometryInfo<dim>::max_children_per_cell +
+                               j + c * n_dofs_per_cell] += matrix(i, j);
+                    }
+                }
+              }
           }
       }
 
@@ -3271,8 +3422,8 @@ MGTwoLevelTransfer<dim, VectorType>::interpolate(VectorType       &dst,
         }
 
       const bool needs_interpolation =
-        (scheme.prolongation_matrix.empty() &&
-         scheme.prolongation_matrix_1d.empty()) == false;
+        (scheme.restriction_matrix.empty() &&
+         scheme.restriction_matrix_1d.empty()) == false;
 
       // general case -> local restriction is needed
       evaluation_data_fine.resize(scheme.n_dofs_per_cell_fine);
@@ -3408,7 +3559,7 @@ namespace internal
 
 template <typename VectorType>
 template <int dim, std::size_t width, typename IndexType>
-void
+std::pair<bool, bool>
 MGTwoLevelTransferBase<VectorType>::
   internal_enable_inplace_operations_if_possible(
     const std::shared_ptr<const Utilities::MPI::Partitioner>
@@ -3421,11 +3572,14 @@ MGTwoLevelTransferBase<VectorType>::
                               &constraint_info_coarse,
     std::vector<unsigned int> &dof_indices_fine)
 {
+  std::pair<bool, bool> success_flags = {false, false};
+
   if (this->partitioner_coarse->is_globally_compatible(
         *external_partitioner_coarse))
     {
       this->vec_coarse.reinit(0);
       this->partitioner_coarse = external_partitioner_coarse;
+      success_flags.first      = true;
     }
   else if (internal::is_partitioner_contained(this->partitioner_coarse,
                                               external_partitioner_coarse))
@@ -3445,6 +3599,7 @@ MGTwoLevelTransferBase<VectorType>::
                                               external_partitioner_coarse);
 
       this->partitioner_coarse = external_partitioner_coarse;
+      success_flags.first      = true;
     }
 
   vec_fine_needs_ghost_update =
@@ -3456,6 +3611,7 @@ MGTwoLevelTransferBase<VectorType>::
     {
       this->vec_fine.reinit(0);
       this->partitioner_fine = external_partitioner_fine;
+      success_flags.second   = true;
     }
   else if (internal::is_partitioner_contained(this->partitioner_fine,
                                               external_partitioner_fine))
@@ -3471,20 +3627,23 @@ MGTwoLevelTransferBase<VectorType>::
                                               external_partitioner_fine);
 
       this->partitioner_fine = external_partitioner_fine;
+      success_flags.second   = true;
     }
+
+  return success_flags;
 }
 
 
 
 template <int dim, typename VectorType>
-void
+std::pair<bool, bool>
 MGTwoLevelTransfer<dim, VectorType>::enable_inplace_operations_if_possible(
   const std::shared_ptr<const Utilities::MPI::Partitioner>
     &external_partitioner_coarse,
   const std::shared_ptr<const Utilities::MPI::Partitioner>
     &external_partitioner_fine)
 {
-  this->internal_enable_inplace_operations_if_possible(
+  return this->internal_enable_inplace_operations_if_possible(
     external_partitioner_coarse,
     external_partitioner_fine,
     this->vec_fine_needs_ghost_update,
@@ -4908,16 +5067,14 @@ MGTwoLevelTransferNonNested<dim, VectorType>::prolongate_and_add_internal_comp(
   VectorType       &dst,
   const VectorType &src) const
 {
-  using Traits = internal::FEPointEvaluation::
-    EvaluatorTypeTraits<dim, dim, n_components, Number>;
-  using value_type = typename Traits::value_type;
-
   const auto evaluation_function = [&](auto &values, const auto &cell_data) {
     this->signals_non_nested.prolongation_cell_loop(true);
     std::vector<Number> solution_values;
 
     FEPointEvaluation<n_components, dim, dim, Number> evaluator(*mapping_info,
                                                                 *fe_coarse);
+
+    const auto &send_permutation = rpe.get_send_permutation();
 
     for (unsigned int cell = 0; cell < cell_data.cells.size(); ++cell)
       {
@@ -4940,19 +5097,25 @@ MGTwoLevelTransferNonNested<dim, VectorType>::prolongate_and_add_internal_comp(
         evaluator.evaluate(solution_values, dealii::EvaluationFlags::values);
 
         for (const auto q : evaluator.quadrature_point_indices())
-          values[q + cell_data.reference_point_ptrs[cell]] =
-            evaluator.get_value(q);
+          {
+            const unsigned int index =
+              send_permutation[q + cell_data.reference_point_ptrs[cell]];
+
+            for (unsigned int c = 0; c < n_components; ++c)
+              values[index * n_components + c] =
+                internal::access(evaluator.get_value(q), c);
+          }
       }
     this->signals_non_nested.prolongation_cell_loop(false);
   };
 
   this->signals_non_nested.prolongation(true);
 
-  std::vector<value_type> evaluation_point_results;
-  std::vector<value_type> buffer;
-  rpe.template evaluate_and_process<value_type>(evaluation_point_results,
-                                                buffer,
-                                                evaluation_function);
+  std::vector<Number> &evaluation_point_results = this->rpe_input_output;
+  std::vector<Number> &buffer                   = this->rpe_buffer;
+
+  rpe.template evaluate_and_process<Number, n_components>(
+    evaluation_point_results, buffer, evaluation_function, false);
   this->signals_non_nested.prolongation(false);
 
   // Keep a vector of typical inverse touch counts that avoid divisions, all
@@ -4961,11 +5124,12 @@ MGTwoLevelTransferNonNested<dim, VectorType>::prolongate_and_add_internal_comp(
   for (unsigned int i = 0; i < typical_weights.size(); ++i)
     typical_weights[i] = Number(1) / Number(i + 1);
 
-  const bool  must_interpolate = (rpe.is_map_unique() == false);
-  const auto &ptr              = rpe.get_point_ptrs();
+  const bool  must_interpolate     = (rpe.is_map_unique() == false);
+  const auto &ptr                  = rpe.get_point_ptrs();
+  const auto &recv_permutation_inv = rpe.get_inverse_recv_permutation();
   for (unsigned int j = 0; j < ptr.size() - 1; ++j)
     {
-      value_type result;
+      std::array<Number, n_components> result;
       // Weight operator in case some points are owned by multiple cells.
       if (must_interpolate)
         {
@@ -4975,19 +5139,33 @@ MGTwoLevelTransferNonNested<dim, VectorType>::prolongate_and_add_internal_comp(
             {
               result = {};
               for (unsigned int k = 0; k < n_entries; ++k)
-                result += evaluation_point_results[ptr[j] + k];
+                {
+                  const unsigned int index = recv_permutation_inv[ptr[j] + k];
+
+                  for (unsigned int c = 0; c < n_components; ++c)
+                    result[c] +=
+                      evaluation_point_results[index * n_components + c];
+                }
               if (n_entries <= typical_weights.size())
-                result *= typical_weights[n_entries - 1];
+                for (unsigned int c = 0; c < n_components; ++c)
+                  result[c] *= typical_weights[n_entries - 1];
               else
-                result /= Number(n_entries);
+                for (unsigned int c = 0; c < n_components; ++c)
+                  result[c] *= Number(1) / Number(n_entries);
             }
           else if (n_entries == 1)
-            result = evaluation_point_results[ptr[j]];
+            {
+              const unsigned int index = recv_permutation_inv[ptr[j]];
+
+              for (unsigned int c = 0; c < n_components; ++c)
+                result[c] = evaluation_point_results[index * n_components + c];
+            }
           else
             result = {};
         }
       else
-        result = evaluation_point_results[j];
+        for (unsigned int c = 0; c < n_components; ++c)
+          result[c] = evaluation_point_results[j * n_components + c];
 
       if (level_dof_indices_fine_ptrs.empty())
         {
@@ -4997,7 +5175,7 @@ MGTwoLevelTransferNonNested<dim, VectorType>::prolongate_and_add_internal_comp(
                                this->level_dof_indices_fine.size());
               dst.local_element(
                 this->level_dof_indices_fine[n_components * j + c]) +=
-                internal::access(result, c);
+                result[c];
             }
         }
       else
@@ -5011,7 +5189,7 @@ MGTwoLevelTransferNonNested<dim, VectorType>::prolongate_and_add_internal_comp(
                                  this->level_dof_indices_fine.size());
                 dst.local_element(
                   this->level_dof_indices_fine[n_components * i + c]) +=
-                  internal::access(result, c);
+                  result[c];
               }
         }
     }
@@ -5046,20 +5224,21 @@ MGTwoLevelTransferNonNested<dim, VectorType>::restrict_and_add_internal_comp(
     EvaluatorTypeTraits<dim, dim, n_components, Number>;
   using value_type = typename Traits::value_type;
 
-  std::vector<value_type> evaluation_point_results;
-  std::vector<value_type> buffer;
+  std::vector<Number> &evaluation_point_results = this->rpe_input_output;
+  std::vector<Number> &buffer                   = this->rpe_buffer;
 
   std::array<Number, 8> typical_weights;
   for (unsigned int i = 0; i < typical_weights.size(); ++i)
     typical_weights[i] = Number(1) / Number(i + 1);
 
-  const bool  must_interpolate = (rpe.is_map_unique() == false);
-  const auto &ptr              = rpe.get_point_ptrs();
-  evaluation_point_results.resize(ptr.size() - 1);
+  const bool  must_interpolate     = (rpe.is_map_unique() == false);
+  const auto &ptr                  = rpe.get_point_ptrs();
+  const auto &recv_permutation_inv = rpe.get_inverse_recv_permutation();
+  evaluation_point_results.resize(ptr.back() * n_components);
 
-  for (unsigned int j = 0; j < evaluation_point_results.size(); ++j)
+  for (unsigned int j = 0; j < ptr.size() - 1; ++j)
     {
-      value_type result;
+      std::array<Number, n_components> result;
       if (level_dof_indices_fine_ptrs.empty())
         {
           for (unsigned int c = 0; c < n_components; ++c)
@@ -5067,24 +5246,26 @@ MGTwoLevelTransferNonNested<dim, VectorType>::restrict_and_add_internal_comp(
               AssertIndexRange(n_components * j + c,
                                this->level_dof_indices_fine.size());
 
-              internal::access(result, c) = src.local_element(
+              result[c] = src.local_element(
                 this->level_dof_indices_fine[n_components * j + c]);
             }
         }
       else
         {
-          result = value_type();
+          result = {};
 
           for (unsigned int i = this->level_dof_indices_fine_ptrs[j];
                i < this->level_dof_indices_fine_ptrs[j + 1];
                ++i)
-            for (unsigned int c = 0; c < n_components; ++c)
-              {
-                AssertIndexRange(n_components * i + c,
-                                 this->level_dof_indices_fine.size());
-                internal::access(result, c) += src.local_element(
-                  this->level_dof_indices_fine[n_components * i + c]);
-              }
+            {
+              for (unsigned int c = 0; c < n_components; ++c)
+                {
+                  AssertIndexRange(n_components * i + c,
+                                   this->level_dof_indices_fine.size());
+                  result[c] += src.local_element(
+                    this->level_dof_indices_fine[n_components * i + c]);
+                }
+            }
         }
       if (must_interpolate)
         {
@@ -5092,12 +5273,21 @@ MGTwoLevelTransferNonNested<dim, VectorType>::restrict_and_add_internal_comp(
           if (n_entries > 1)
             {
               if (n_entries <= typical_weights.size())
-                result *= typical_weights[n_entries - 1];
+                for (unsigned int c = 0; c < n_components; ++c)
+                  result[c] *= typical_weights[n_entries - 1];
               else
-                result /= Number(n_entries);
+                for (unsigned int c = 0; c < n_components; ++c)
+                  result[c] /= Number(n_entries);
             }
         }
-      evaluation_point_results[j] = result;
+
+      for (unsigned int i = ptr[j]; i < ptr[j + 1]; ++i)
+        {
+          const unsigned int index = recv_permutation_inv[i];
+
+          for (unsigned int c = 0; c < n_components; ++c)
+            evaluation_point_results[index * n_components + c] = result[c];
+        }
     }
 
   const auto evaluation_function = [&](const auto &values,
@@ -5107,6 +5297,8 @@ MGTwoLevelTransferNonNested<dim, VectorType>::restrict_and_add_internal_comp(
     FEPointEvaluation<n_components, dim, dim, Number> evaluator(*mapping_info,
                                                                 *fe_coarse);
 
+    const auto &send_permutation = rpe.get_send_permutation();
+
     for (unsigned int cell = 0; cell < cell_data.cells.size(); ++cell)
       {
         solution_values.resize(fe_coarse->n_dofs_per_cell());
@@ -5115,8 +5307,19 @@ MGTwoLevelTransferNonNested<dim, VectorType>::restrict_and_add_internal_comp(
         evaluator.reinit(cell);
 
         for (const auto q : evaluator.quadrature_point_indices())
-          evaluator.submit_value(
-            values[q + cell_data.reference_point_ptrs[cell]], q);
+          {
+            typename internal::FEPointEvaluation::
+              EvaluatorTypeTraits<dim, dim, n_components, Number>::value_type
+                value;
+
+            const unsigned int index =
+              send_permutation[q + cell_data.reference_point_ptrs[cell]];
+
+            for (unsigned int c = 0; c < n_components; ++c)
+              internal::access(value, c) = values[index * n_components + c];
+
+            evaluator.submit_value(value, q);
+          }
 
         evaluator.test_and_sum(solution_values, EvaluationFlags::values);
 
@@ -5136,9 +5339,8 @@ MGTwoLevelTransferNonNested<dim, VectorType>::restrict_and_add_internal_comp(
   };
 
   this->signals_non_nested.restriction(true);
-  rpe.template process_and_evaluate<value_type>(evaluation_point_results,
-                                                buffer,
-                                                evaluation_function);
+  rpe.template process_and_evaluate<Number, n_components>(
+    evaluation_point_results, buffer, evaluation_function, false);
   this->signals_non_nested.restriction(false);
 }
 
@@ -5174,7 +5376,7 @@ MGTwoLevelTransferNonNested<dim, VectorType>::interpolate(
 
 
 template <int dim, typename VectorType>
-void
+std::pair<bool, bool>
 MGTwoLevelTransferNonNested<dim, VectorType>::
   enable_inplace_operations_if_possible(
     const std::shared_ptr<const Utilities::MPI::Partitioner>
@@ -5182,7 +5384,7 @@ MGTwoLevelTransferNonNested<dim, VectorType>::
     const std::shared_ptr<const Utilities::MPI::Partitioner>
       &external_partitioner_fine)
 {
-  this->internal_enable_inplace_operations_if_possible(
+  return this->internal_enable_inplace_operations_if_possible(
     external_partitioner_coarse,
     external_partitioner_fine,
     this->vec_fine_needs_ghost_update,

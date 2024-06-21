@@ -22,7 +22,6 @@
 // slightly revised version of step-4. As a consequence, most of the following
 // include files are as used there, or at least as used already in previous
 // tutorial programs:
-#include <deal.II/base/logstream.h>
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/function.h>
 #include <deal.II/base/function_parser.h>
@@ -35,7 +34,6 @@
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/numerics/vector_tools.h>
-#include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/full_matrix.h>

@@ -23,7 +23,6 @@
 // The first task as usual is to include the functionality of these well-known
 // deal.II library files and some C++ header files.
 #include <deal.II/base/quadrature_lib.h>
-#include <deal.II/base/logstream.h>
 #include <deal.II/base/function.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/base/conditional_ostream.h>
@@ -62,7 +61,6 @@
 #include <deal.II/fe/mapping_q.h>
 
 #include <deal.II/numerics/vector_tools.h>
-#include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/error_estimator.h>
 #include <deal.II/numerics/solution_transfer.h>
@@ -3330,9 +3328,6 @@ namespace Step32
 
         temperature_solution     = distributed_temp1;
         old_temperature_solution = distributed_temp2;
-
-        Assert(old_temperature_solution.has_ghost_elements(),
-               ExcInternalError());
       }
 
       {

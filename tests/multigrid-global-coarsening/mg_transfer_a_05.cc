@@ -125,10 +125,12 @@ test(int                          fe_degree,
 {
   const auto str_fine   = std::to_string(fe_degree);
   const auto str_coarse = std::to_string(fe_degree);
+  const auto str_dim    = std::to_string(dim);
 
   if ((fe_degree > 0) && (do_simplex_mesh == false))
     {
-      deallog.push("CG<2>(" + str_fine + ")<->CG<2>(" + str_coarse + ")");
+      deallog.push("HCG<" + str_dim + ">(" + str_fine + ")<->HCG<" + str_dim +
+                   ">(" + str_coarse + ")");
       do_test<dim, double>(FE_Q<dim>(fe_degree),
                            FE_Q<dim>(fe_degree),
                            function);
@@ -137,7 +139,8 @@ test(int                          fe_degree,
 
   if ((fe_degree > 0) && do_simplex_mesh)
     {
-      deallog.push("CG<2>(" + str_fine + ")<->CG<2>(" + str_coarse + ")");
+      deallog.push("SCG<" + str_dim + ">(" + str_fine + ")<->SCG<" + str_dim +
+                   ">(" + str_coarse + ")");
       do_test<dim, double>(FE_SimplexP<dim>(fe_degree),
                            FE_SimplexP<dim>(fe_degree),
                            function);
@@ -160,9 +163,9 @@ main(int argc, char **argv)
   for (unsigned int i = 0; i <= 4; ++i)
     test<2, double>(i, fu, false);
 
-  for (unsigned int i = 0; i <= 2; ++i)
+  for (unsigned int i = 0; i <= 3; ++i)
     test<2, double>(i, fu, true);
 
-  for (unsigned int i = 1; i <= 2; ++i)
+  for (unsigned int i = 1; i <= 3; ++i)
     test<3, double>(i, fu3, true);
 }

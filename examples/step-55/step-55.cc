@@ -300,11 +300,11 @@ namespace Step55
     void assemble_system();
     void solve();
     void refine_grid();
-    void output_results(const unsigned int cycle) const;
+    void output_results(const unsigned int cycle);
 
-    unsigned int velocity_degree;
-    double       viscosity;
-    MPI_Comm     mpi_communicator;
+    const unsigned int velocity_degree;
+    const double       viscosity;
+    MPI_Comm           mpi_communicator;
 
     const FESystem<dim>                       fe;
     parallel::distributed::Triangulation<dim> triangulation;
@@ -387,15 +387,13 @@ namespace Step55
     // into two IndexSets based on how we want to create the block matrices
     // and vectors.
     const IndexSet &locally_owned_dofs = dof_handler.locally_owned_dofs();
-    owned_partitioning.resize(2);
-    owned_partitioning[0] = locally_owned_dofs.get_view(0, n_u);
-    owned_partitioning[1] = locally_owned_dofs.get_view(n_u, n_u + n_p);
+    owned_partitioning                 = {locally_owned_dofs.get_view(0, n_u),
+                                          locally_owned_dofs.get_view(n_u, n_u + n_p)};
 
     const IndexSet locally_relevant_dofs =
       DoFTools::extract_locally_relevant_dofs(dof_handler);
-    relevant_partitioning.resize(2);
-    relevant_partitioning[0] = locally_relevant_dofs.get_view(0, n_u);
-    relevant_partitioning[1] = locally_relevant_dofs.get_view(n_u, n_u + n_p);
+    relevant_partitioning = {locally_relevant_dofs.get_view(0, n_u),
+                             locally_relevant_dofs.get_view(n_u, n_u + n_p)};
 
     // Setting up the constraints for boundary conditions and hanging nodes
     // is identical to step-40. Even though we don't have any hanging nodes
@@ -509,8 +507,8 @@ namespace Step55
     const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
     const unsigned int n_q_points    = quadrature_formula.size();
 
-    FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
-    FullMatrix<double> cell_matrix2(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double> system_cell_matrix(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double> preconditioner_cell_matrix(dofs_per_cell, dofs_per_cell);
     Vector<double>     cell_rhs(dofs_per_cell);
 
     const RightHandSide<dim>    right_hand_side;
@@ -527,9 +525,9 @@ namespace Step55
     for (const auto &cell : dof_handler.active_cell_iterators())
       if (cell->is_locally_owned())
         {
-          cell_matrix  = 0;
-          cell_matrix2 = 0;
-          cell_rhs     = 0;
+          system_cell_matrix         = 0;
+          preconditioner_cell_matrix = 0;
+          cell_rhs                   = 0;
 
           fe_values.reinit(cell);
           right_hand_side.vector_value_list(fe_values.get_quadrature_points(),
@@ -547,14 +545,15 @@ namespace Step55
                 {
                   for (unsigned int j = 0; j < dofs_per_cell; ++j)
                     {
-                      cell_matrix(i, j) +=
+                      system_cell_matrix(i, j) +=
                         (viscosity *
                            scalar_product(grad_phi_u[i], grad_phi_u[j]) -
                          div_phi_u[i] * phi_p[j] - phi_p[i] * div_phi_u[j]) *
                         fe_values.JxW(q);
 
-                      cell_matrix2(i, j) += 1.0 / viscosity * phi_p[i] *
-                                            phi_p[j] * fe_values.JxW(q);
+                      preconditioner_cell_matrix(i, j) += 1.0 / viscosity *
+                                                          phi_p[i] * phi_p[j] *
+                                                          fe_values.JxW(q);
                     }
 
                   const unsigned int component_i =
@@ -566,13 +565,13 @@ namespace Step55
 
 
           cell->get_dof_indices(local_dof_indices);
-          constraints.distribute_local_to_global(cell_matrix,
+          constraints.distribute_local_to_global(system_cell_matrix,
                                                  cell_rhs,
                                                  local_dof_indices,
                                                  system_matrix,
                                                  system_rhs);
 
-          constraints.distribute_local_to_global(cell_matrix2,
+          constraints.distribute_local_to_global(preconditioner_cell_matrix,
                                                  local_dof_indices,
                                                  preconditioner_matrix);
         }
@@ -677,8 +676,10 @@ namespace Step55
 
 
   template <int dim>
-  void StokesProblem<dim>::output_results(const unsigned int cycle) const
+  void StokesProblem<dim>::output_results(const unsigned int cycle)
   {
+    TimerOutput::Scope t(computing_timer, "output");
+
     {
       const ComponentSelectFunction<dim> pressure_mask(dim, dim + 1);
       const ComponentSelectFunction<dim> velocity_mask(std::make_pair(0, dim),
@@ -788,10 +789,7 @@ namespace Step55
         solve();
 
         if (Utilities::MPI::n_mpi_processes(mpi_communicator) <= 32)
-          {
-            TimerOutput::Scope t(computing_timer, "output");
-            output_results(cycle);
-          }
+          output_results(cycle);
 
         computing_timer.print_summary();
         computing_timer.reset();

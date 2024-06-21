@@ -201,12 +201,6 @@
  *       </td></tr>
  *
  *   <tr valign="top">
- *       <td>step-12b</td>
- *       <td> A variant of step-12 (for linear advection problems), but
- *       using the MeshWorker framework for the assembly of linear systems.
- *       </td></tr>
- *
- *   <tr valign="top">
  *       <td>step-13</td>
  *       <td> Software design questions and
  *       how to write a modular, extensible finite element program.
@@ -234,12 +228,6 @@
  *       <br/> Keywords: Multigrid, PreconditionMG, mg::Matrix,
  *       MGTransferPrebuilt, MeshWorker::mesh_loop(), MGLevelObject,
  *       MGConstrainedDoFs
- *       </td></tr>
- *
- *   <tr valign="top">
- *       <td>step-16b</td>
- *       <td> A variant of step-16 but with MeshWorker for assembly: Multigrid
- *       preconditioning of the Laplace equation on adaptive meshes.
  *       </td></tr>
  *
  *   <tr valign="top">
@@ -697,6 +685,11 @@
  *       <br/> Keywords: FERemoteEvaluation
  *       </td></tr>
  *
+ *   <tr valign="top">
+ *       <td>step-90</td>
+ *       <td> Solving the Laplace-Beltrami equation on a surface using the trace finite element method.
+ *       <br/> Keywords: MeshWorker::mesh_loop(), NonMatching::FEImmersedSurfaceValues
+ *       </td></tr>
  * </table>
  *
  *
@@ -939,7 +932,6 @@
  *     </td>
  *     <td>
  *       step-12,
- *       step-12b,
  *       step-21,
  *       step-39,
  *       step-46,
@@ -1107,7 +1099,6 @@
  *     </td>
  *     <td>
  *       step-16,
- *       step-16b
  *       step-31,
  *       step-32,
  *       step-37,

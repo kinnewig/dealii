@@ -30,7 +30,7 @@
  * u (0) = 0
  * u'(0) = k
  *
- * write in terms of a first order ode:
+ * written in terms of a first order ode:
  *
  * y[0]' -     y[1]  = 0
  * y[1]' + k^2 y[0]  = 0
@@ -53,6 +53,9 @@
  *
  * J = alpha I + A
  */
+
+unsigned int n_rhs_evaluations = 0;
+
 class HarmonicOscillator
 {
 public:
@@ -78,6 +81,7 @@ public:
                                 VectorType       &res) {
       res = y_dot;
       A.vmult_add(res, y);
+      ++n_rhs_evaluations;
     };
 
     time_stepper.setup_jacobian = [&](const double,
@@ -89,8 +93,8 @@ public:
 
       J = A;
 
-      J(0, 0) = alpha;
-      J(1, 1) = alpha;
+      J(0, 0) += alpha;
+      J(1, 1) += alpha;
 
       Jinv.invert(J);
     };
@@ -112,10 +116,14 @@ public:
   void
   run()
   {
-    y[1]     = kappa;
-    y_dot[0] = kappa;
-    time_stepper.solve_dae(y, y_dot);
+    y[1]                           = kappa;
+    y_dot[0]                       = kappa;
+    const unsigned int n_timesteps = time_stepper.solve_dae(y, y_dot);
+
+    deallog << "n_rhs_evaluations=" << n_rhs_evaluations << std::endl;
+    deallog << "n_timesteps=" << n_timesteps << std::endl;
   }
+
   SUNDIALS::IDA<Vector<double>> time_stepper;
 
 private:

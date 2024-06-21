@@ -19,7 +19,6 @@
 // @sect3{Include files}
 
 #include <deal.II/base/quadrature_lib.h>
-#include <deal.II/base/logstream.h>
 #include <deal.II/base/function.h>
 #include <deal.II/base/utilities.h>
 
@@ -47,7 +46,6 @@
 #include <deal.II/fe/fe_values.h>
 
 #include <deal.II/numerics/vector_tools.h>
-#include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/error_estimator.h>
 
@@ -453,8 +451,7 @@ namespace Step56
     , solver_type(solver_type)
     , triangulation(Triangulation<dim>::maximum_smoothing)
     ,
-    // Finite element for the velocity only -- we choose the
-    // $Q_{\text{pressure_degree}}^d$ element:
+    // Finite element for the velocity only:
     velocity_fe(FE_Q<dim>(pressure_degree + 1) ^ dim)
     ,
     // Finite element for the whole system:

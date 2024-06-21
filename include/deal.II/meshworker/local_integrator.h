@@ -49,10 +49,14 @@ namespace MeshWorker
    * If a function is not overloaded in a derived class, but its usage flag is
    * true, the function will cause an exception ExcPureFunction.
    *
+   * @deprecated This class is deprecated. It used to be the basis for
+   *   integration via the MeshWorker::integration_loop() function, but the
+   *   same functionality is available via MeshWorker::loop().
+   *
    * @ingroup MeshWorker
    */
   template <int dim, int spacedim = dim, typename number = double>
-  class LocalIntegrator : public Subscriptor
+  class DEAL_II_DEPRECATED_EARLY LocalIntegrator : public Subscriptor
   {
   public:
     /**
@@ -120,7 +124,11 @@ namespace MeshWorker
      *
      * @note This variable is currently not used by the library, but it is
      * provided to help develop application programs.
+     *
+     * @deprecated Because the library itself does not use this field, it is
+     *   better placed in derived classes.
      */
+    DEAL_II_DEPRECATED_EARLY
     std::vector<std::string> input_vector_names;
 
     /**
@@ -130,7 +138,11 @@ namespace MeshWorker
      *
      * @note This variable is currently not used by the library, but it is
      * provided to help develop application programs.
+     *
+     * @deprecated Because the library itself does not use this field, it is
+     *   better placed in derived classes.
      */
+    DEAL_II_DEPRECATED_EARLY
     std::vector<std::string> output_names;
 
     /**

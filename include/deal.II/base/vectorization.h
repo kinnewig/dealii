@@ -6588,17 +6588,10 @@ namespace std
   inline ::dealii::VectorizedArray<Number, width>
   sin(const ::dealii::VectorizedArray<Number, width> &x)
   {
-    // put values in an array and later read in that array with an unaligned
-    // read. This should save some instructions as compared to directly
-    // setting the individual elements and also circumvents a compiler
-    // optimization bug in gcc-4.6 with SSE2 (see also deal.II developers list
-    // from April 2014, topic "matrix_free/step-48 Test").
-    Number values[::dealii::VectorizedArray<Number, width>::size()];
+    ::dealii::VectorizedArray<Number, width> out;
     for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
          ++i)
-      values[i] = std::sin(x[i]);
-    ::dealii::VectorizedArray<Number, width> out;
-    out.load(&values[0]);
+      out[i] = std::sin(x[i]);
     return out;
   }
 
@@ -6615,12 +6608,10 @@ namespace std
   inline ::dealii::VectorizedArray<Number, width>
   cos(const ::dealii::VectorizedArray<Number, width> &x)
   {
-    Number values[::dealii::VectorizedArray<Number, width>::size()];
+    ::dealii::VectorizedArray<Number, width> out;
     for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
          ++i)
-      values[i] = std::cos(x[i]);
-    ::dealii::VectorizedArray<Number, width> out;
-    out.load(&values[0]);
+      out[i] = std::cos(x[i]);
     return out;
   }
 
@@ -6637,12 +6628,190 @@ namespace std
   inline ::dealii::VectorizedArray<Number, width>
   tan(const ::dealii::VectorizedArray<Number, width> &x)
   {
-    Number values[::dealii::VectorizedArray<Number, width>::size()];
+    ::dealii::VectorizedArray<Number, width> out;
     for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
          ++i)
-      values[i] = std::tan(x[i]);
+      out[i] = std::tan(x[i]);
+    return out;
+  }
+
+
+
+  /**
+   * Compute the arc cosine of a vectorized data field. The result is
+   * returned as vectorized array in the form <tt>{acos(x[0]), acos(x[1]), ...,
+   * acos(x[size()-1])}</tt>.
+   *
+   * @relatesalso VectorizedArray
+   */
+  template <typename Number, std::size_t width>
+  inline ::dealii::VectorizedArray<Number, width>
+  acos(const ::dealii::VectorizedArray<Number, width> &x)
+  {
     ::dealii::VectorizedArray<Number, width> out;
-    out.load(&values[0]);
+    for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
+         ++i)
+      out[i] = std::acos(x[i]);
+    return out;
+  }
+
+
+
+  /**
+   * Compute the arc sine of a vectorized data field. The result is
+   * returned as vectorized array in the form <tt>{asin(x[0]), asin(x[1]), ...,
+   * asin(x[size()-1])}</tt>.
+   *
+   * @relatesalso VectorizedArray
+   */
+  template <typename Number, std::size_t width>
+  inline ::dealii::VectorizedArray<Number, width>
+  asin(const ::dealii::VectorizedArray<Number, width> &x)
+  {
+    ::dealii::VectorizedArray<Number, width> out;
+    for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
+         ++i)
+      out[i] = std::asin(x[i]);
+    return out;
+  }
+
+
+
+  /**
+   * Compute the arc tangent of a vectorized data field. The result is
+   * returned as vectorized array in the form <tt>{atan(x[0]), atan(x[1]), ...,
+   * atan(x[size()-1])}</tt>.
+   *
+   * @relatesalso VectorizedArray
+   */
+  template <typename Number, std::size_t width>
+  inline ::dealii::VectorizedArray<Number, width>
+  atan(const ::dealii::VectorizedArray<Number, width> &x)
+  {
+    ::dealii::VectorizedArray<Number, width> out;
+    for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
+         ++i)
+      out[i] = std::atan(x[i]);
+    return out;
+  }
+
+
+
+  /**
+   * Compute the hyperbolic cosine of a vectorized data field. The result is
+   * returned as vectorized array in the form <tt>{cosh(x[0]), cosh(x[1]), ...,
+   * cosh(x[size()-1])}</tt>.
+   *
+   * @relatesalso VectorizedArray
+   */
+  template <typename Number, std::size_t width>
+  inline ::dealii::VectorizedArray<Number, width>
+  cosh(const ::dealii::VectorizedArray<Number, width> &x)
+  {
+    ::dealii::VectorizedArray<Number, width> out;
+    for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
+         ++i)
+      out[i] = std::cosh(x[i]);
+    return out;
+  }
+
+
+
+  /**
+   * Compute the hyperbolic sine of a vectorized data field. The result is
+   * returned as vectorized array in the form <tt>{sinh(x[0]), sinh(x[1]), ...,
+   * sinh(x[size()-1])}</tt>.
+   *
+   * @relatesalso VectorizedArray
+   */
+  template <typename Number, std::size_t width>
+  inline ::dealii::VectorizedArray<Number, width>
+  sinh(const ::dealii::VectorizedArray<Number, width> &x)
+  {
+    ::dealii::VectorizedArray<Number, width> out;
+    for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
+         ++i)
+      out[i] = std::sinh(x[i]);
+    return out;
+  }
+
+
+
+  /**
+   * Compute the hyperbolic tangent of a vectorized data field. The result is
+   * returned as vectorized array in the form <tt>{tanh(x[0]), tanh(x[1]), ...,
+   * tanh(x[size()-1])}</tt>.
+   *
+   * @relatesalso VectorizedArray
+   */
+  template <typename Number, std::size_t width>
+  inline ::dealii::VectorizedArray<Number, width>
+  tanh(const ::dealii::VectorizedArray<Number, width> &x)
+  {
+    ::dealii::VectorizedArray<Number, width> out;
+    for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
+         ++i)
+      out[i] = std::tanh(x[i]);
+    return out;
+  }
+
+
+
+  /**
+   * Compute the area hyperbolic cosine of a vectorized data field. The result
+   * is returned as vectorized array in the form <tt>{acosh(x[0]), acosh(x[1]),
+   * ..., acosh(x[size()-1])}</tt>.
+   *
+   * @relatesalso VectorizedArray
+   */
+  template <typename Number, std::size_t width>
+  inline ::dealii::VectorizedArray<Number, width>
+  acosh(const ::dealii::VectorizedArray<Number, width> &x)
+  {
+    ::dealii::VectorizedArray<Number, width> out;
+    for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
+         ++i)
+      out[i] = std::acosh(x[i]);
+    return out;
+  }
+
+
+
+  /**
+   * Compute the area hyperbolic sine of a vectorized data field. The result is
+   * returned as vectorized array in the form <tt>{asinh(x[0]), asinh(x[1]),
+   * ..., asinh(x[size()-1])}</tt>.
+   *
+   * @relatesalso VectorizedArray
+   */
+  template <typename Number, std::size_t width>
+  inline ::dealii::VectorizedArray<Number, width>
+  asinh(const ::dealii::VectorizedArray<Number, width> &x)
+  {
+    ::dealii::VectorizedArray<Number, width> out;
+    for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
+         ++i)
+      out[i] = std::asinh(x[i]);
+    return out;
+  }
+
+
+
+  /**
+   * Compute the area hyperbolic tangent of a vectorized data field. The result
+   * is returned as vectorized array in the form <tt>{atanh(x[0]), atanh(x[1]),
+   * ..., atanh(x[size()-1])}</tt>.
+   *
+   * @relatesalso VectorizedArray
+   */
+  template <typename Number, std::size_t width>
+  inline ::dealii::VectorizedArray<Number, width>
+  atanh(const ::dealii::VectorizedArray<Number, width> &x)
+  {
+    ::dealii::VectorizedArray<Number, width> out;
+    for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
+         ++i)
+      out[i] = std::atanh(x[i]);
     return out;
   }
 
@@ -6659,12 +6828,10 @@ namespace std
   inline ::dealii::VectorizedArray<Number, width>
   exp(const ::dealii::VectorizedArray<Number, width> &x)
   {
-    Number values[::dealii::VectorizedArray<Number, width>::size()];
+    ::dealii::VectorizedArray<Number, width> out;
     for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
          ++i)
-      values[i] = std::exp(x[i]);
-    ::dealii::VectorizedArray<Number, width> out;
-    out.load(&values[0]);
+      out[i] = std::exp(x[i]);
     return out;
   }
 
@@ -6681,12 +6848,10 @@ namespace std
   inline ::dealii::VectorizedArray<Number, width>
   log(const ::dealii::VectorizedArray<Number, width> &x)
   {
-    Number values[::dealii::VectorizedArray<Number, width>::size()];
+    ::dealii::VectorizedArray<Number, width> out;
     for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
          ++i)
-      values[i] = std::log(x[i]);
-    ::dealii::VectorizedArray<Number, width> out;
-    out.load(&values[0]);
+      out[i] = std::log(x[i]);
     return out;
   }
 
@@ -6719,12 +6884,10 @@ namespace std
   inline ::dealii::VectorizedArray<Number, width>
   pow(const ::dealii::VectorizedArray<Number, width> &x, const Number p)
   {
-    Number values[::dealii::VectorizedArray<Number, width>::size()];
+    ::dealii::VectorizedArray<Number, width> out;
     for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
          ++i)
-      values[i] = std::pow(x[i], p);
-    ::dealii::VectorizedArray<Number, width> out;
-    out.load(&values[0]);
+      out[i] = std::pow(x[i], p);
     return out;
   }
 
@@ -6743,12 +6906,10 @@ namespace std
   pow(const ::dealii::VectorizedArray<Number, width> &x,
       const ::dealii::VectorizedArray<Number, width> &p)
   {
-    Number values[::dealii::VectorizedArray<Number, width>::size()];
+    ::dealii::VectorizedArray<Number, width> out;
     for (unsigned int i = 0; i < dealii::VectorizedArray<Number, width>::size();
          ++i)
-      values[i] = std::pow(x[i], p[i]);
-    ::dealii::VectorizedArray<Number, width> out;
-    out.load(&values[0]);
+      out[i] = std::pow(x[i], p[i]);
     return out;
   }
 
