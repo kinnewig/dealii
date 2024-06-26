@@ -30,7 +30,7 @@
 
 // Tpetra includes
 #  include <Tpetra_Core.hpp>
-#  include <Tpetra_CrsMatrix.hpp>
+#  include <Tpetra_FECrsMatrix.hpp>
 
 
 DEAL_II_NAMESPACE_OPEN
@@ -144,11 +144,11 @@ namespace LinearAlgebra
       /**
        * Typedef for Tpetra::CrsMatrix
        */
-      using MatrixType =
-        Tpetra::CrsMatrix<Number,
-                          int,
-                          dealii::types::signed_global_dof_index,
-                          NodeType>;
+      using FEMatrixType =
+        Tpetra::FECrsMatrix<Number,
+                            int,
+                            dealii::types::signed_global_dof_index,
+                            NodeType>;
 
       /**
        * Typedef for Tpetra::Map
@@ -159,7 +159,7 @@ namespace LinearAlgebra
       /**
        * Typedef for Tpetra::CrsGraph
        */
-      using GraphType =
+      using FEGraphType =
         Tpetra::CrsGraph<int, dealii::types::signed_global_dof_index, NodeType>;
 
       /**
@@ -174,7 +174,8 @@ namespace LinearAlgebra
       /**
        * Generate a matrix from a TpetraWrappers::SparsityPattern object.
        */
-      SparseMatrix(const SparsityPattern<MemorySpace> &sparsity_pattern);
+      // TODO 1: Disbaled the constructor, as the SparsityPattern needs to be reworked first!
+      //SparseMatrix(const SparsityPattern<MemorySpace> &sparsity_pattern);
 
       /**
        * Generate a matrix that is completely stored locally, having #m rows and
@@ -242,9 +243,10 @@ namespace LinearAlgebra
        * This is a collective operation that needs to be called on all
        * processors in order to avoid a dead lock.
        */
-      template <typename SparsityPatternType>
-      void
-      reinit(const SparsityPatternType &sparsity_pattern);
+      // TODO 4: Disbaled the constructor, as the SparsityPattern needs to be reworked first!
+      //template <typename SparsityPatternType>
+      //void
+      //reinit(const SparsityPatternType &sparsity_pattern);
 
       /**
        * This function reinitializes the Trilinos sparse matrix from a
@@ -255,8 +257,9 @@ namespace LinearAlgebra
        * This is a collective operation that needs to be called on all
        * processors in order to avoid a dead lock.
        */
-      void
-      reinit(const SparsityPattern<MemorySpace> &sparsity_pattern);
+      // TODO 5: Disbaled the constructor, as the SparsityPattern needs to be reworked first!
+      //void
+      //reinit(const SparsityPattern<MemorySpace> &sparsity_pattern);
       /** @} */
 
       /**
@@ -275,9 +278,10 @@ namespace LinearAlgebra
        * matrix-vector products, since Trilinos reorganizes the matrix memory
        * prior to use (in the compress() step).
        */
-      SparseMatrix(const IndexSet    &parallel_partitioning,
-                   const MPI_Comm     communicator          = MPI_COMM_WORLD,
-                   const unsigned int n_max_entries_per_row = 0);
+      // TODO 6:
+      //SparseMatrix(const IndexSet    &parallel_partitioning,
+      //             const MPI_Comm     communicator          = MPI_COMM_WORLD,
+      //             const unsigned int n_max_entries_per_row = 0);
 
       /**
        * Same as before, but now set the number of non-zero entries in each
@@ -287,9 +291,10 @@ namespace LinearAlgebra
        * nonzero elements by the respective SparseMatrix::reinit call
        * considerably faster.
        */
-      SparseMatrix(const IndexSet                  &parallel_partitioning,
-                   const MPI_Comm                   communicator,
-                   const std::vector<unsigned int> &n_entries_per_row);
+      // TODO 7:
+      //SparseMatrix(const IndexSet                  &parallel_partitioning,
+      //             const MPI_Comm                   communicator,
+      //             const std::vector<unsigned int> &n_entries_per_row);
 
       /**
        * This constructor is similar to the one above, but it now takes two
@@ -305,10 +310,11 @@ namespace LinearAlgebra
        * allocated for each row. This number does not need to be accurate, as
        * the structure is reorganized in the compress() call.
        */
-      SparseMatrix(const IndexSet &row_parallel_partitioning,
-                   const IndexSet &col_parallel_partitioning,
-                   const MPI_Comm  communicator          = MPI_COMM_WORLD,
-                   const size_type n_max_entries_per_row = 0);
+      // TODO 8:
+      //SparseMatrix(const IndexSet &row_parallel_partitioning,
+      //             const IndexSet &col_parallel_partitioning,
+      //             const MPI_Comm  communicator          = MPI_COMM_WORLD,
+      //             const size_type n_max_entries_per_row = 0);
 
       /**
        * Same as before, but now set the number of non-zero entries in each
@@ -318,10 +324,11 @@ namespace LinearAlgebra
        * nonzero elements by the respective SparseMatrix::reinit call
        * considerably faster.
        */
-      SparseMatrix(const IndexSet                  &row_parallel_partitioning,
-                   const IndexSet                  &col_parallel_partitioning,
-                   const MPI_Comm                   communicator,
-                   const std::vector<unsigned int> &n_entries_per_row);
+      // TODO 9:
+      //SparseMatrix(const IndexSet                  &row_parallel_partitioning,
+      //             const IndexSet                  &col_parallel_partitioning,
+      //             const MPI_Comm                   communicator,
+      //             const std::vector<unsigned int> &n_entries_per_row);
 
       /**
        * This function is initializes the Trilinos Tpetra matrix according to
@@ -342,13 +349,14 @@ namespace LinearAlgebra
        * This is a collective operation that needs to be called on all
        * processors in order to avoid a dead lock.
        */
-      template <typename SparsityPatternType>
-      std::enable_if_t<
-        !std::is_same_v<SparsityPatternType, dealii::SparseMatrix<double>>>
-      reinit(const IndexSet            &parallel_partitioning,
-             const SparsityPatternType &sparsity_pattern,
-             const MPI_Comm             communicator  = MPI_COMM_WORLD,
-             const bool                 exchange_data = false);
+      // TODO 10:
+      //template <typename SparsityPatternType>
+      //std::enable_if_t<
+      //  !std::is_same_v<SparsityPatternType, dealii::SparseMatrix<double>>>
+      //reinit(const IndexSet            &parallel_partitioning,
+      //       const SparsityPatternType &sparsity_pattern,
+      //       const MPI_Comm             communicator  = MPI_COMM_WORLD,
+      //       const bool                 exchange_data = false);
 
       /**
        * This function is similar to the other initialization function above,
@@ -362,14 +370,15 @@ namespace LinearAlgebra
        * This is a collective operation that needs to be called on all
        * processors in order to avoid a dead lock.
        */
-      template <typename SparsityPatternType>
-      std::enable_if_t<
-        !std::is_same_v<SparsityPatternType, dealii::SparseMatrix<double>>>
-      reinit(const IndexSet            &row_parallel_partitioning,
-             const IndexSet            &col_parallel_partitioning,
-             const SparsityPatternType &sparsity_pattern,
-             const MPI_Comm             communicator  = MPI_COMM_WORLD,
-             const bool                 exchange_data = false);
+      // TODO 11:
+      //template <typename SparsityPatternType>
+      //std::enable_if_t<
+      //  !std::is_same_v<SparsityPatternType, dealii::SparseMatrix<double>>>
+      //reinit(const IndexSet            &row_parallel_partitioning,
+      //       const IndexSet            &col_parallel_partitioning,
+      //       const SparsityPatternType &sparsity_pattern,
+      //       const MPI_Comm             communicator  = MPI_COMM_WORLD,
+      //       const bool                 exchange_data = false);
 
       /**
        * This function initializes the Trilinos matrix using the deal.II sparse
@@ -387,14 +396,15 @@ namespace LinearAlgebra
        * This is a @ref GlossCollectiveOperation "collective operation" that needs to be called on all
        * processors in order to avoid a dead lock.
        */
-      void
-      reinit(const IndexSet                     &row_parallel_partitioning,
-             const IndexSet                     &col_parallel_partitioning,
-             const dealii::SparseMatrix<Number> &dealii_sparse_matrix,
-             const MPI_Comm                      communicator = MPI_COMM_WORLD,
-             const double                        drop_tolerance    = 1e-13,
-             const bool                          copy_values       = true,
-             const dealii::SparsityPattern      *use_this_sparsity = nullptr);
+      // TODO 12:
+      //void
+      //reinit(const IndexSet                     &row_parallel_partitioning,
+      //       const IndexSet                     &col_parallel_partitioning,
+      //       const dealii::SparseMatrix<Number> &dealii_sparse_matrix,
+      //       const MPI_Comm                      communicator = MPI_COMM_WORLD,
+      //       const double                        drop_tolerance    = 1e-13,
+      //       const bool                          copy_values       = true,
+      //       const dealii::SparsityPattern      *use_this_sparsity = nullptr);
 
       /** @} */
 
@@ -984,7 +994,7 @@ namespace LinearAlgebra
        * href="https://docs.trilinos.org/dev/packages/tpetra/doc/html/classTpetra_1_1CrsMatrix.html">Tpetra::CrsMatrix</a>
        * class.
        */
-      const MatrixType &
+      const FEMatrixType &
       trilinos_matrix() const;
 
       /**
@@ -993,7 +1003,7 @@ namespace LinearAlgebra
        * href="https://docs.trilinos.org/dev/packages/tpetra/doc/html/classTpetra_1_1CrsMatrix.html">Tpetra::CrsMatrix</a>
        * class.
        */
-      MatrixType &
+      FEMatrixType &
       trilinos_matrix();
 
       /**
@@ -1005,7 +1015,7 @@ namespace LinearAlgebra
        * href="https://docs.trilinos.org/dev/packages/tpetra/doc/html/classTpetra_1_1CrsMatrix.html">Tpetra::CrsMatrix</a>
        * class.
        */
-      Teuchos::RCP<const MatrixType>
+      Teuchos::RCP<const FEMatrixType>
       trilinos_rcp() const;
 
       /**
@@ -1017,7 +1027,7 @@ namespace LinearAlgebra
        * href="https://docs.trilinos.org/dev/packages/tpetra/doc/html/classTpetra_1_1CrsMatrix.html">Tpetra::CrsMatrix</a>
        * class.
        */
-      Teuchos::RCP<MatrixType>
+      Teuchos::RCP<FEMatrixType>
       trilinos_rcp();
       /** @} */
 
@@ -1115,22 +1125,18 @@ namespace LinearAlgebra
       element(const size_type i, const size_type j, const bool no_error) const;
 
       /**
-       * Pointer to the user-supplied Tpetra Trilinos mapping of the matrix
-       * columns that assigns parts of the matrix to the individual processes.
-       *
-       * @note The Trilinos matrix is row-oriented, and the row_space_map is
-       * therefore stored in the Trilinos matrix itself. The additional
-       * information from the column space map is used to speed up the
-       * assembly process.
+       * The FECrsGraph stores the parallel distribution of rows and columns.
+       * It stores the the unique row map, the overlapping row map and the overlapping
+       * column map.
        */
-      Teuchos::RCP<MapType> column_space_map;
+      Teuchos::RCP<FEGraphType> graph;
 
       /**
        * A sparse matrix object in Trilinos to be used for finite element based
        * problems which allows for assembling into non-local elements.  The
        * actual type, a sparse matrix, is set in the constructor.
        */
-      Teuchos::RCP<MatrixType> matrix;
+      Teuchos::RCP<FEMatrixType> matrix;
 
       /**
        * A boolean variable to hold information on whether the matrix is
@@ -1258,7 +1264,7 @@ namespace LinearAlgebra
 
 
     template <typename Number, typename MemorySpace>
-    inline const Tpetra::CrsMatrix<
+    inline const Tpetra::FECrsMatrix<
       Number,
       int,
       types::signed_global_dof_index,
@@ -1271,7 +1277,7 @@ namespace LinearAlgebra
 
 
     template <typename Number, typename MemorySpace>
-    inline Tpetra::CrsMatrix<
+    inline Tpetra::FECrsMatrix<
       Number,
       int,
       types::signed_global_dof_index,
@@ -1284,7 +1290,7 @@ namespace LinearAlgebra
 
 
     template <typename Number, typename MemorySpace>
-    inline Teuchos::RCP<const Tpetra::CrsMatrix<
+    inline Teuchos::RCP<const Tpetra::FECrsMatrix<
       Number,
       int,
       types::signed_global_dof_index,
@@ -1298,7 +1304,7 @@ namespace LinearAlgebra
 
     template <typename Number, typename MemorySpace>
     inline Teuchos::RCP<
-      Tpetra::CrsMatrix<Number,
+      Tpetra::FECrsMatrix<Number,
                         int,
                         types::signed_global_dof_index,
                         typename SparseMatrix<Number, MemorySpace>::NodeType>>

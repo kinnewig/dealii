@@ -17,12 +17,16 @@
 
 #include <deal.II/base/config.h>
 
+
 #ifdef DEAL_II_TRILINOS_WITH_TPETRA
 
 #  include <deal.II/lac/dynamic_sparsity_pattern.h>
 #  include <deal.II/lac/full_matrix.h>
 #  include <deal.II/lac/trilinos_tpetra_sparse_matrix.h>
 #  include <deal.II/lac/trilinos_tpetra_sparsity_pattern.h>
+
+#  include <Kokkos_DualView.hpp>
+#  include <Tpetra_FECrsMatrix.hpp>
 
 DEAL_II_NAMESPACE_OPEN
 
@@ -41,39 +45,47 @@ namespace LinearAlgebra
         Tpetra::Map<int, dealii::types::signed_global_dof_index, NodeType>;
 
       template <typename Number, typename NodeType>
-      using MatrixType =
-        Tpetra::CrsMatrix<Number,
-                          int,
-                          dealii::types::signed_global_dof_index,
-                          NodeType>;
+      using FEMatrixType =
+        Tpetra::FECrsMatrix<Number,
+                            int,
+                            dealii::types::signed_global_dof_index,
+                            NodeType>;
 
       template <typename NodeType>
-      using GraphType =
-        Tpetra::CrsGraph<int, dealii::types::signed_global_dof_index, NodeType>;
+      using FEGraphType = Tpetra::
+        FECrsGraph<int, dealii::types::signed_global_dof_index, NodeType>;
 
       template <typename Number,
                 typename NodeType,
                 typename SparsityPatternType>
       void
-      reinit_matrix(const IndexSet            &row_parallel_partitioning,
-                    const IndexSet            &column_parallel_partitioning,
-                    const SparsityPatternType &sparsity_pattern,
-                    const bool                 exchange_data,
-                    const MPI_Comm             communicator,
-                    Teuchos::RCP<MapType<NodeType>> &column_space_map,
-                    Teuchos::RCP<MatrixType<Number, NodeType>> &matrix)
+      reinit_matrix(const IndexSet &unique_row_parallel_partitioning,
+                    const IndexSet &relevant_row_parallel_partitioning,
+                    const IndexSet &relevant_column_parallel_partitioning,
+                    const SparsityPatternType           &sparsity_pattern,
+                    const bool                           exchange_data,
+                    const MPI_Comm                       communicator,
+                    Teuchos::RCP<FEGraphType<NodeType>> &graph,
+                    Teuchos::RCP<FEMatrixType<Number, NodeType>> &matrix)
       {
         // release memory before reallocation
+        graph.reset();
         matrix.reset();
 
         // Get the Tpetra::Maps
-        Teuchos::RCP<MapType<NodeType>> row_space_map =
-          row_parallel_partitioning.make_tpetra_map_rcp(communicator, false);
+        Teuchos::RCP<MapType<NodeType>> unique_row_space_map =
+          unique_row_parallel_partitioning.make_tpetra_map_rcp(communicator,
+                                                               false);
 
-        column_space_map =
-          column_parallel_partitioning.make_tpetra_map_rcp(communicator, false);
+        Teuchos::RCP<MapType<NodeType>> relevant_row_space_map =
+          relevant_row_parallel_partitioning.make_tpetra_map_rcp(communicator,
+                                                                 true);
 
-        if (column_space_map->getComm()->getRank() == 0)
+        Teuchos::RCP<MapType<NodeType>> relevant_column_space_map =
+          relevant_column_parallel_partitioning.make_tpetra_map_rcp(
+            communicator, true);
+
+        if (relevant_column_space_map->getComm()->getRank() == 0)
           {
             AssertDimension(sparsity_pattern.n_rows(),
                             row_parallel_partitioning.size());
@@ -85,159 +97,177 @@ namespace LinearAlgebra
         // and let that handle the exchange. otherwise, manually create a
         // CrsGraph, which consumes considerably less memory because it can set
         // correct number of indices right from the start
-        if (exchange_data)
-          {
-            SparsityPattern trilinos_sparsity;
-            trilinos_sparsity.reinit(row_parallel_partitioning,
-                                     column_parallel_partitioning,
-                                     sparsity_pattern,
-                                     communicator,
-                                     exchange_data);
-            matrix = Utilities::Trilinos::internal::make_rcp<
-              MatrixType<Number, NodeType>>(
-              trilinos_sparsity.trilinos_sparsity_pattern());
-
-            return;
-          }
+        // TODO!!!!! Need to rework the SparsityPattern
+        // if (exchange_data)
+        //  {
+        //    SparsityPattern trilinos_sparsity;
+        //    trilinos_sparsity.reinit(row_parallel_partitioning,
+        //                             column_parallel_partitioning,
+        //                             sparsity_pattern,
+        //                             communicator,
+        //                             exchange_data);
+        //    matrix = Utilities::Trilinos::internal::make_rcp<
+        //      FEMatrixType<Number, NodeType>>(
+        //      trilinos_sparsity.trilinos_sparsity_pattern());
+        //
+        //    return;
+        //  }
 
         // compute the number of entries per row
-        const size_type first_row = row_space_map->getMinGlobalIndex();
-        const size_type last_row  = row_space_map->getMaxGlobalIndex() + 1;
+        const size_type first_row = relevant_row_space_map->getMinGlobalIndex();
+        const size_type last_row =
+          relevant_row_space_map->getMaxGlobalIndex() + 1;
 
-        Teuchos::Array<size_t> n_entries_per_row(last_row - first_row);
-        for (size_type row = first_row; row < last_row; ++row)
-          n_entries_per_row[row - first_row] = sparsity_pattern.row_length(row);
+        // The FECrsGraph expects a Kokkos::DualView object, therefore
+        // we create that Kokkos::DualView first.
+        Kokkos::DualView<size_t *, typename NodeType::kokkos_space>
+          local_entries_per_row("n_entries_per_row", last_row - first_row);
 
-          // The deal.II notation of a Sparsity pattern corresponds to the
-          // Tpetra concept of a Graph. Hence, we generate a graph by copying
-          // the sparsity pattern into it, and then build up the matrix from the
-          // graph. This is considerable faster than directly filling elements
-          // into the matrix. Moreover, it consumes less memory, since the
-          // internal reordering is done on ints only, and we can leave the
-          // doubles aside.
-#  if DEAL_II_TRILINOS_VERSION_GTE(12, 16, 0)
-        Teuchos::RCP<GraphType<NodeType>> graph =
-          Utilities::Trilinos::internal::make_rcp<GraphType<NodeType>>(
-            row_space_map, n_entries_per_row);
-#  else
-        Teuchos::RCP<GraphType<NodeType>> graph =
-          Utilities::Trilinos::internal::make_rcp<GraphType<NodeType>>(
-            row_space_map, Teuchos::arcpFromArray(n_entries_per_row));
-#  endif
+        // Next we fill the Kokkos::DualView
+        for (int row = first_row; row < last_row; ++row)
+          local_entries_per_row.d_view(row - first_row) =
+            sparsity_pattern.row_length(row);
 
-        // This functions assumes that the sparsity pattern sits on all
-        // processors (completely). The parallel version uses a Tpetra graph
-        // that is already distributed.
+        // TODO: To allow the use for different Kokkos spaces we should
+        //       Kokkos::parallel_for here instead, that would look
+        //       something like that:
+        // Kokkos::parallel_for(
+        //   "fill_local_entries_per_row",
+        //   last_row - first_row,
+        //   KOKKOS_LAMBDA(const int row) {
+        //     local_entries_per_row.d_view(row) =
+        //       sparsity_pattern.row_length(row + first_row);
+        //   });
 
-        // now insert the indices
-        Teuchos::Array<TrilinosWrappers::types::int_type> row_indices;
+        // Syncronise the DualView
+        local_entries_per_row.template sync<typename NodeType::kokkos_space>();
 
-        for (size_type global_row = first_row; global_row < last_row;
-             ++global_row)
-          {
-            const int row_length = sparsity_pattern.row_length(global_row);
-            if (row_length == 0)
-              continue;
+        // The deal.II notation of a Sparsity pattern corresponds to the
+        // Tpetra concept of a Graph. Hence, we generate a graph by copying
+        // the sparsity pattern into it, and then build up the matrix from the
+        // graph. This is considerable faster than directly filling elements
+        // into the matrix. Moreover, it consumes less memory, since the
+        // internal reordering is done on ints only, and we can leave the
+        // doubles aside.
 
-            row_indices.resize(row_length, -1);
-            for (size_type col = 0; col < row_length; ++col)
-              row_indices[col] =
-                sparsity_pattern.column_number(global_row, col);
-
-            AssertIndexRange(global_row, row_space_map->getGlobalNumElements());
-            graph->insertGlobalIndices(global_row, row_indices);
-          }
+        // There is a good chance, that the following will not work with
+        // Trilinos versions that predate Jura ages. So I bet 5 bucks,
+        // that the regression tester will fail for some older ubuntu version.
+        graph = Utilities::Trilinos::internal::make_rcp<FEGraphType<NodeType>>(
+          unique_row_space_map,
+          relevant_row_space_map,
+          relevant_column_space_map,
+          local_entries_per_row);
 
         // Eventually, optimize the graph structure (sort indices, make memory
-        // contiguous, etc.). note that the documentation of the function indeed
+        // contiguous, etc.).
+        // This shouldn't be true any more for the Tpetra::FECrsGraph...
+        // note that the documentation of the function indeed
         // states that we first need to provide the column (domain) map and then
         // the row (range) map
-        graph->fillComplete(column_space_map, row_space_map);
-
-        // check whether we got the number of columns right.
-        AssertDimension(sparsity_pattern.n_cols(), graph->getGlobalNumCols());
+        // graph->fillComplete(column_space_map, row_space_map);
+        graph->fillComplete();
 
         // And now finally generate the matrix.
-        matrix =
-          Utilities::Trilinos::internal::make_rcp<MatrixType<Number, NodeType>>(
-            graph);
+        matrix = Utilities::Trilinos::internal::make_rcp<
+          FEMatrixType<Number, NodeType>>(graph);
       }
 
 
 
       template <typename Number, typename NodeType>
       void
-      reinit_matrix(const IndexSet               &row_parallel_partitioning,
-                    const IndexSet               &column_parallel_partitioning,
-                    const DynamicSparsityPattern &sparsity_pattern,
-                    const bool                    exchange_data,
-                    const MPI_Comm                communicator,
-                    Teuchos::RCP<MapType<NodeType>> &column_space_map,
-                    Teuchos::RCP<MatrixType<Number, NodeType>> &matrix)
+      reinit_matrix(const IndexSet &unique_row_parallel_partitioning,
+                    const IndexSet &unique_column_parallel_partitioning,
+                    const DynamicSparsityPattern        &sparsity_pattern,
+                    const bool                           exchange_data,
+                    const MPI_Comm                       communicator,
+                    Teuchos::RCP<FEGraphType<NodeType>> &graph,
+                    Teuchos::RCP<FEMatrixType<Number, NodeType>> &matrix)
       {
         // release memory before reallocation
+        graph.reset();
         matrix.reset();
 
         // Get the Tpetra::Maps
-        Teuchos::RCP<MapType<NodeType>> row_space_map =
-          row_parallel_partitioning.make_tpetra_map_rcp(communicator, false);
+        Teuchos::RCP<MapType<NodeType>> unique_row_space_map =
+          unique_row_parallel_partitioning.make_tpetra_map_rcp(communicator,
+                                                               false);
 
-        column_space_map =
-          column_parallel_partitioning.make_tpetra_map_rcp(communicator, false);
+        Teuchos::RCP<MapType<NodeType>> unique_column_space_map =
+          unique_column_parallel_partitioning.make_tpetra_map_rcp(communicator,
+                                                                  false);
 
-        if (column_space_map->getComm()->getRank() == 0)
+        // TODO: Fix the assert!!
+        if (unique_column_space_map->getComm()->getRank() == 0)
           {
             AssertDimension(sparsity_pattern.n_rows(),
-                            row_parallel_partitioning.size());
+                            unique_row_parallel_partitioning.size());
             AssertDimension(sparsity_pattern.n_cols(),
                             column_parallel_partitioning.size());
           }
+
+        // Get the locally relevant set from the DynamicSparsityPattern:
+        IndexSet relevant_rows = sparsity_pattern.row_index_set();
+
+        // Get the Tpetra::Maps
+        Teuchos::RCP<MapType<NodeType>> relevant_row_space_map =
+          relevant_rows.make_tpetra_map_rcp(communicator, true);
 
         // if we want to exchange data, build a usual Trilinos sparsity pattern
         // and let that handle the exchange. otherwise, manually create a
         // CrsGraph, which consumes considerably less memory because it can set
         // correct number of indices right from the start
-        if (exchange_data)
-          {
-            SparsityPattern trilinos_sparsity;
-            trilinos_sparsity.reinit(row_parallel_partitioning,
-                                     column_parallel_partitioning,
-                                     sparsity_pattern,
-                                     communicator,
-                                     exchange_data);
-            matrix = Utilities::Trilinos::internal::make_rcp<
-              MatrixType<Number, NodeType>>(
-              trilinos_sparsity.trilinos_sparsity_pattern());
+        // if (exchange_data)
+        //  {
+        //    SparsityPattern trilinos_sparsity;
+        //    trilinos_sparsity.reinit(row_parallel_partitioning,
+        //                             column_parallel_partitioning,
+        //                             sparsity_pattern,
+        //                             communicator,
+        //                             exchange_data);
+        //    matrix = Utilities::Trilinos::internal::make_rcp<
+        //      MatrixType<Number, NodeType>>(
+        //      trilinos_sparsity.trilinos_sparsity_pattern());
 
-            return;
-          }
+        //    return;
+        //  }
 
-        IndexSet relevant_rows(sparsity_pattern.row_index_set());
-        // serial case
-        if (relevant_rows.size() == 0)
-          {
-            relevant_rows.set_size(row_space_map->getGlobalNumElements());
-            relevant_rows.add_range(0, row_space_map->getGlobalNumElements());
-          }
-        relevant_rows.compress();
-
-
-        std::vector<TrilinosWrappers::types::int_type> ghost_rows;
-        Teuchos::Array<size_t>                         n_entries_per_row(
 #  if DEAL_II_TRILINOS_VERSION_GTE(14, 0, 0)
-          row_space_map->getLocalNumElements());
+        int n_relevant_rows = relevant_row_space_map->getLocalNumElements();
 #  else
-          row_space_map->getNodeNumElements());
+        int n_relevant_rows = relevant_row_space_map->getNodeNumElements();
 #  endif
+
+        // The FECrsGraph expects a Kokkos::DualView object, therefore
+        // we create that Kokkos::DualView first.
+        Kokkos::DualView<size_t *, typename NodeType::kokkos_space>
+          local_entries_per_row("n_entries_per_row", n_relevant_rows);
+
+        // Next we fill the Kokkos::DualView
         {
-          size_type own = 0;
+          size_type local_row = 0;
           for (const auto global_row : relevant_rows)
             {
-              if (row_space_map->isNodeGlobalElement(global_row))
-                n_entries_per_row[own++] =
-                  sparsity_pattern.row_length(global_row);
+              local_entries_per_row[local_row] =
+                sparsity_pattern.row_length(global_row);
+              ++local_row;
             }
         }
+
+        // TODO: To allow the use for different Kokkos spaces we should
+        //       Kokkos::parallel_for here instead, that would look
+        //       something like that:
+        // Kokkos::parallel_for(
+        //   "fill_local_entries_per_row",
+        //   last_row - first_row,
+        //   KOKKOS_LAMBDA(const int row) {
+        //     local_entries_per_row.d_view(row) =
+        //       sparsity_pattern.row_length(row + first_row);
+        //   });
+
+        // Syncronise the DualView
+        local_entries_per_row.template sync<typename NodeType::kokkos_space>();
 
         // The deal.II notation of a Sparsity pattern corresponds to the Tpetra
         // concept of a Graph. Hence, we generate a graph by copying the
@@ -246,19 +276,8 @@ namespace LinearAlgebra
         // into the matrix. Moreover, it consumes less memory, since the
         // internal reordering is done on ints only, and we can leave the
         // doubles aside.
-#  if DEAL_II_TRILINOS_VERSION_GTE(12, 16, 0)
-        Teuchos::RCP<GraphType<NodeType>> graph =
-          Utilities::Trilinos::internal::make_rcp<GraphType<NodeType>>(
-            row_space_map, n_entries_per_row);
-#  else
-        Teuchos::RCP<GraphType<NodeType>> graph =
-          Utilities::Trilinos::internal::make_rcp<GraphType<NodeType>>(
-            row_space_map, Teuchos::arcpFromArray(n_entries_per_row));
-#  endif
-
-        // This functions assumes that the sparsity pattern sits on all
-        // processors (completely). The parallel version uses a Tpetra graph
-        // that is already distributed.
+        graph = Utilities::Trilinos::internal::make_rcp<FEGraphType<NodeType>>(
+          unique_row_space_map, relevant_row_space_map, local_entries_per_row);
 
         // now insert the indices
         Teuchos::Array<TrilinosWrappers::types::int_type> row_indices;
@@ -282,15 +301,14 @@ namespace LinearAlgebra
         // contiguous, etc.). note that the documentation of the function indeed
         // states that we first need to provide the column (domain) map and then
         // the row (range) map
-        graph->fillComplete(column_space_map, row_space_map);
+        graph->fillComplete(unique_column_space_map, unique_row_space_map);
 
         // check whether we got the number of columns right.
         AssertDimension(sparsity_pattern.n_cols(), graph->getGlobalNumCols());
 
         // And now finally generate the matrix.
-        matrix =
-          Utilities::Trilinos::internal::make_rcp<MatrixType<Number, NodeType>>(
-            graph);
+        matrix = Utilities::Trilinos::internal::make_rcp<
+          FEMatrixType<Number, NodeType>>(graph);
       }
     } // namespace
 
@@ -305,16 +323,14 @@ namespace LinearAlgebra
     // thread on a configuration with MPI will still get a parallel interface.
     template <typename Number, typename MemorySpace>
     SparseMatrix<Number, MemorySpace>::SparseMatrix()
-      : column_space_map(Utilities::Trilinos::internal::make_rcp<MapType>(
-          0,
-          0,
-          Utilities::Trilinos::tpetra_comm_self()))
     {
+      Teuchos::RCP<MapType> unique_row_space_map =
+        Utilities::Trilinos::internal::make_rcp<MapType>(
+          0, 0, Utilities::Trilinos::tpetra_comm_self());
+
       // Prepare the graph
-      Teuchos::RCP<GraphType> graph =
-        Utilities::Trilinos::internal::make_rcp<GraphType>(column_space_map,
-                                                           column_space_map,
-                                                           0);
+      graph = Utilities::Trilinos::internal::make_rcp<FEGraphType>(
+        unique_row_space_map, unique_row_space_map, 0);
       graph->fillComplete();
 
       // Create the matrix from the graph
@@ -324,7 +340,7 @@ namespace LinearAlgebra
     }
 
 
-
+    // TODO!!!!!
     template <typename Number, typename MemorySpace>
     SparseMatrix<Number, MemorySpace>::SparseMatrix(
       const SparsityPattern<MemorySpace> &sparsity_pattern)
@@ -344,19 +360,22 @@ namespace LinearAlgebra
       const size_type    m,
       const size_type    n,
       const unsigned int n_max_entries_per_row)
-      : column_space_map(Utilities::Trilinos::internal::make_rcp<MapType>(
-          n,
-          0,
-          Utilities::Trilinos::tpetra_comm_self()))
-      , matrix(Utilities::Trilinos::internal::make_rcp<MatrixType>(
-          Utilities::Trilinos::internal::make_rcp<MapType>(
-            m,
-            0,
-            Utilities::Trilinos::tpetra_comm_self()),
-          column_space_map,
-          n_max_entries_per_row))
-      , compressed(false)
-    {}
+    {
+      Teuchos::RCP<MapType> relevant_column_space_map =
+        Utilities::Trilinos::internal::make_rcp<MapType>(
+          n, 0, Utilities::Trilinos::tpetra_comm_self());
+
+      Teuchos::RCP<MapType> relevant_row_space_map =
+        Utilities::Trilinos::internal::make_rcp<MapType>(
+          m, 0, Utilities::Trilinos::tpetra_comm_self());
+
+      matrix = Utilities::Trilinos::internal::make_rcp<FEMatrixType>(
+        relevant_row_space_map,
+        relevant_column_space_map,
+        n_max_entries_per_row);
+
+      compressed = false;
+    }
 
 
 
@@ -365,18 +384,21 @@ namespace LinearAlgebra
       const size_type                  m,
       const size_type                  n,
       const std::vector<unsigned int> &n_entries_per_row)
-      : column_space_map(Utilities::Trilinos::internal::make_rcp<MapType>(
-          n,
-          0,
-          Utilities::Trilinos::tpetra_comm_self()))
-      , compressed(false)
     {
+      Teuchos::RCP<MapType> relevant_column_space_map =
+        Utilities::Trilinos::internal::make_rcp<MapType>(
+          n, 0, Utilities::Trilinos::tpetra_comm_self());
+
+      Teuchos::RCP<MapType> relevant_row_space_map =
+        Utilities::Trilinos::internal::make_rcp<MapType>(
+          m, 0, Utilities::Trilinos::tpetra_comm_self());
+
+
       std::vector<size_t> entries_per_row_size_type(n_entries_per_row.begin(),
                                                     n_entries_per_row.end());
-      matrix = Utilities::Trilinos::internal::make_rcp<MatrixType>(
-        Utilities::Trilinos::internal::make_rcp<MapType>(
-          m, 0, Utilities::Trilinos::tpetra_comm_self()),
-        column_space_map,
+      matrix = Utilities::Trilinos::internal::make_rcp<FEMatrixType>(
+        relevant_row_space_map,
+        relevant_column_space_map,
 #  if DEAL_II_TRILINOS_VERSION_GTE(13, 2, 0)
         Teuchos::ArrayView<size_t>{entries_per_row_size_type}
 #  else
@@ -386,6 +408,8 @@ namespace LinearAlgebra
                                   false)
 #  endif
       );
+
+      compressed = false;
     }
 
 
