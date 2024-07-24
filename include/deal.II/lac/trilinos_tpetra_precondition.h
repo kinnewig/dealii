@@ -1317,6 +1317,162 @@ namespace LinearAlgebra
                  const AdditionalData &additional_data = AdditionalData());
     };
 #  endif // DEAL_II_TRILINOS_WITH_IFPACK2
+ 
+
+
+    /**
+     * @brief The one-level FROSch preconditioner.
+     *
+     * This class provides easy access to FROSch (Fast and Robust Overlapping Schwarz), a parallel 
+     * domain decomposition preconditioning package. FROSch is based on the Schwarz framework and 
+     * allows for the construction of one-level and two-level Schwarz preconditioners.
+     *
+     * The one-level preconditioner is easy to use, as it only requires the overlap size as information. 
+     * However, the number of iterations will be strongly dependent on the number of used MPI ranks. 
+     *
+     * @ingroup TpetraWrappers
+     * @ingroup Preconditioners
+     */
+    template <typename Number, typename MemorySpace = dealii::MemorySpace::Host>
+    class PreconditionFROSch : public PreconditionBase<Number, MemorySpace>
+    {
+    public:
+      /**
+       * @brief The set of additional parameters to tune the preconditioner.
+       *
+       */
+      struct AdditionalData
+      {
+        /**
+         * @brief Constructor.
+         * 
+         * The one-level preconditioner only requires the overlap size as information. Moreover, 
+         * one can choose a different solver for the subdomains.
+         */
+        AdditionalData(const int         overlap           = 0,
+                       const std::string &subdomain_solver = "KLU2");
+      };
+
+      /**
+       *  @brief The overlap between the subdomains.
+       *
+       *  Determine the overlap between the subdomains
+       */
+      int overlap;
+
+
+      /** 
+       * @brief Select an solver for the subdomains.
+       *
+       * All direct solvers that are available in Amesos2 can be employed as subdomain solvers.
+       */
+      std::string subdomain_solver;
+
+      void
+      initialize(SparseMatrix<Number, MemorySpace> &A,
+                 Teuchos::ParameterList            &parameters);
+
+
+      void
+      initialize(SparseMatrix<Number, MemorySpace> &A,
+                 const AdditionalData &additional_data = AdditionalData());
+    };
+
+
+
+    /**
+     * @brief The two-level FROSch preconditioner.
+     *
+     * This class provides easy access to FROSch (Fast and Robust Overlapping Schwarz), a parallel 
+     * domain decomposition preconditioning package. FROSch is based on the Schwarz framework and 
+     * allows for the construction of one-level and two-level Schwarz preconditioners.
+     *
+     * Compared to the one-level FROSch preconditioner, the two-level preconditioner requires a lot 
+     * of information about the system to construct a suitable second level. One specialty about the 
+     * two-level preconditioner is that it also takes the repeated map as an additional argument, an 
+     * IndexSet containing the elements that belong to multiple ranks.
+     * 
+     * @ingroup TpetraWrappers
+     * @ingroup Preconditioners
+     */
+    template <typename Number, typename MemorySpace = dealii::MemorySpace::Host>
+    class PreconditionFROSchTwoLevel : public PreconditionBase<Number, MemorySpace>
+    {
+    public:
+      /**
+       * @brief The set of additional parameters to tune the preconditioner.
+       *
+       */
+      struct AdditionalData
+      {
+        /**
+         * @brief Constructor.
+         * 
+         * The one-level preconditioner only requires the overlap size as information. Moreover, 
+         * one can choose a different solver for the subdomains.
+         */
+        AdditionalData(const int          overlap             = 0,
+                       const int          dim                 = 2,
+                       const int          dofs_per_node       = 1,
+                       const std::string &dof_ordering        = "NodeWise",
+                       const std::string &subdomain_solver    = "KLU2",
+                       const std::string &coarse_space_solver = "KLU2");
+      };
+
+      /**
+       *  @brief The overlap between the subdomains.
+       *
+       *  Determine the overlap between the subdomains
+       */
+      int overlap;
+
+      /**
+       * @brief Number of dofs per node.
+       *
+       * Provide the number of dofs per node.
+       */
+      int dofs_per_node;
+
+      /**
+       * @brief dof ordering 
+       *
+       * Describe how the dofs ordered on the cell, available options are: NodeWise, DimensionWise and Custom
+       */
+      std::string dof_ordering;
+
+      /** 
+       * @brief Select an solver for the subdomains.
+       *
+       * All direct solvers that are available in Amesos2 can be employed as subdomain solver.
+       */
+      std::string subdomain_solver;
+
+      /** 
+       * @brief Select an solver for the coarse space.
+       *
+       * All direct solvers that are available in Amesos2 can be employed as coarse space solver.
+       */
+      std::string coarse_space_solver;
+
+      void
+      initialize(SparseMatrix<Number, MemorySpace> &A,
+                 Teuchos::ParameterList            &parameters);
+
+
+      void
+      initialize(SparseMatrix<Number, MemorySpace> &A,
+                 IndexSet                          &repeated_map,
+                 Teuchos::ParameterList            &parameters);
+
+      void
+      initialize(SparseMatrix<Number, MemorySpace> &A,
+                 const AdditionalData &additional_data = AdditionalData());
+
+      void
+      initialize(SparseMatrix<Number, MemorySpace> &A,
+                 IndexSet                          &repeated_map,
+                 const AdditionalData &additional_data = AdditionalData());
+    };
 
   } // namespace TpetraWrappers
 } // namespace LinearAlgebra
