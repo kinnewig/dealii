@@ -22,6 +22,7 @@
 #include "deal.II/base/memory_space.h"
 
 #include "deal.II/lac/vector.h"
+#include <deal.II/lac/trilinos_xpetra_types.h>
 
 #include <Teuchos_BLAS_types.hpp>
 
@@ -32,6 +33,7 @@
 
 #  include <deal.II/lac/la_parallel_vector.h>
 #  include <deal.II/lac/trilinos_tpetra_sparse_matrix.h>
+#  include <deal.II/lac/trilinos_xpetra_types.h>
 
 #  include <Teuchos_ConfigDefs.hpp>
 #  include <Teuchos_ParameterList.hpp>
@@ -1317,6 +1319,77 @@ namespace LinearAlgebra
                  const AdditionalData &additional_data = AdditionalData());
     };
 #  endif // DEAL_II_TRILINOS_WITH_IFPACK2
+
+    /**
+     * @brief The class for the algebraic FROSch preconditioner
+     *
+     * @ingroup TpetraWrappers
+     * @ingroup Preconditioners
+     */
+    template <typename Number, typename MemorySpace = dealii::MemorySpace::Host>
+    class PreconditionFROSch : public PreconditionBase<Number, MemorySpace>
+    {
+    public:
+      /**
+       * @brief Construct identity preconditioner.
+       *
+       */
+      PreconditionFROSch(const std::string &precondition_type);
+
+      /**
+       * Initializes the preconditioner for the matrix <tt>A</tt> based on
+       * the <tt>parameter_set</tt>.
+       */
+      void
+      initialize(const SparseMatrix<Number, MemorySpace> &A,
+                 Teuchos::RCP<Teuchos::ParameterList>    &parameters);
+
+    protected:
+      std::string precondition_type;
+    };
+
+
+
+    /**
+     * @brief The class for the geometric FROSch preconditioner
+     *
+     * @ingroup TpetraWrappers
+     * @ingroup Preconditioners
+     */
+    // TODO: Add here the Trilinos version, where this feature was merged
+    // #  if DEAL_II_TRILINOS_VERSION_GTE(16, 0, 0)
+    template <typename Number, typename MemorySpace = dealii::MemorySpace::Host>
+    class PreconditionGeometricFROSch
+      : public PreconditionBase<Number, MemorySpace>
+    {
+    public:
+      /**
+       * @brief Construct identity preconditioner.
+       *
+       */
+      PreconditionGeometricFROSch(const std::string &precondition_type);
+
+      /**
+       * Initializes the preconditioner for the matrix <tt>A</tt> based on
+       * the <tt>parameter_set</tt>.
+       */
+      void
+      initialize(Teuchos::RCP<XpetraTypes::FROSchGeometricOneLevelType<Number, MemorySpace>>
+                   frosch_preconditioner);
+
+      /**
+       * Initializes the preconditioner for the matrix <tt>A</tt> based on
+       * the <tt>parameter_set</tt>.
+       */
+      void
+      initialize(Teuchos::RCP<XpetraTypes::FROSchGeometricTwoLevelType<Number, MemorySpace>>
+                   frosch_preconditioner);
+
+
+    protected:
+      std::string precondition_type;
+    };
+    // #  endif // DEAL_II_TRILINOS_VERSION_GTE(16, 0, 0)
 
   } // namespace TpetraWrappers
 } // namespace LinearAlgebra
