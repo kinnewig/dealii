@@ -170,6 +170,42 @@ namespace LinearAlgebra
 
 
 
+    template <typename Number, typename MemorySpace>
+    void 
+    PreconditionFROSch<Number, MemorySpace>::initialize(Teuchos::RCP<XpetraTypes::FROSchOneLevelType<Number, MemorySpace>>
+                 frosch_preconditioner)
+    {
+      // convert the FROSch preconditioner into a Xpetra::Operator
+      Teuchos::RCP<XpetraTypes::LinearOperator<Number, MemorySpace>>
+        xpetra_prec = Teuchos::rcp_dynamic_cast<
+          XpetraTypes::LinearOperator<Number, MemorySpace>>(
+          frosch_preconditioner);
+
+      // convert the FROSch preconditioner into a Tpetra::Operator
+      // (The OneLevelOperator is derived from the Xpetra::Operator)
+      this->preconditioner = internal::XpetraToTpetra<Number, MemorySpace>(xpetra_prec);
+    }
+
+
+
+    template <typename Number, typename MemorySpace>
+    void 
+    PreconditionFROSch<Number, MemorySpace>::initialize(Teuchos::RCP<XpetraTypes::FROSchTwoLevelType<Number, MemorySpace>>
+                 frosch_preconditioner)
+    {
+      // convert the FROSch preconditioner into a Xpetra::Operator
+      Teuchos::RCP<XpetraTypes::LinearOperator<Number, MemorySpace>>
+        xpetra_prec = Teuchos::rcp_dynamic_cast<
+          XpetraTypes::LinearOperator<Number, MemorySpace>>(
+          frosch_preconditioner);
+
+      // convert the FROSch preconditioner into a Tpetra::Operator
+      // (The TwoLevelOperator is derived from the Xpetra::Operator)
+      this->preconditioner = internal::XpetraToTpetra<Number, MemorySpace>(xpetra_prec);
+    }
+
+
+
     // TODO: Add here the Trilinos version, where this feature was merged
     // #  if DEAL_II_TRILINOS_VERSION_GTE(16, 0, 0)
     /* ---------------- PreconditionGeometricFROSch ------------------- */
