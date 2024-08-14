@@ -1344,6 +1344,22 @@ namespace LinearAlgebra
       initialize(const SparseMatrix<Number, MemorySpace> &A,
                  Teuchos::RCP<Teuchos::ParameterList>    &parameters);
 
+      /**
+       * Initializes the preconditioner for the matrix <tt>A</tt> based on
+       * a given Trilinos FROSch preconditioner.
+       */
+      void 
+      initialize(Teuchos::RCP<XpetraTypes::FROSchOneLevelType<Number, MemorySpace>>
+                   frosch_preconditioner);
+
+      /**
+       * Initializes the preconditioner for the matrix <tt>A</tt> based on
+       * a given Trilinos FROSch preconditioner.
+       */
+      void 
+      initialize(Teuchos::RCP<XpetraTypes::FROSchTwoLevelType<Number, MemorySpace>>
+                   frosch_preconditioner);
+
     protected:
       std::string precondition_type;
     };
