@@ -38,7 +38,7 @@
 #include <t8_geometry/t8_geometry_implementations/t8_geometry_linear.hxx>
 #include <t8_geometry/t8_geometry_with_vertices.hxx>
 #include <t8_schemes/t8_default/t8_default_tri/t8_dtri.h>
-#include <t8_vec.h>
+#include <t8_types/t8_vec.h>
 
 #include <algorithm>
 #include <fstream>

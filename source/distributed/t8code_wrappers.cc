@@ -63,7 +63,7 @@ namespace internal
       types::scheme_collection *scheme =
         t8_forest_get_scheme(forest);
       scheme->element_get_level(eclass, element);
-      scheme->get_root(eclass, element);
+      scheme->set_to_root(eclass, element);
     }
 
     void
