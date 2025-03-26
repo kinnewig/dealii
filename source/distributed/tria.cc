@@ -1124,7 +1124,7 @@ namespace parallel
       std::cout<< "!!!!forest set balance before adapt: "<< parallel_forest->set_balance<<" !!!"<<std::endl;
 
 
-      std::string fileprefix_o = "originale";
+      std::string fileprefix_o = "original";
       t8_forest_write_vtk_ext (parallel_forest, fileprefix_o.c_str(), 1, 1,
                          1, 1, 0,
                          0, 1, 0, nullptr);
@@ -1149,7 +1149,7 @@ namespace parallel
       t8_forest_set_user_data(parallel_forest, this);
 
       std::cout<< "!!!!forest set balance after adapt: "<< parallel_forest->set_balance<<" !!!"<<std::endl;
-      std::string fileprefix_a = "adapte";
+      std::string fileprefix_a = "adapt";
       t8_forest_write_vtk_ext (parallel_forest, fileprefix_a.c_str(), 1, 1,
                          1, 1, 0,
                          0, 1, 0, nullptr);
@@ -1158,13 +1158,13 @@ namespace parallel
       parallel_forest = dealii::internal::t8code::balance(parallel_forest);
       Assert(t8_forest_get_user_data(parallel_forest) == this, ExcInternalError());
       std::cout<< "!!!!forest set balance after balance: "<< parallel_forest->set_balance<<" !!!"<<std::endl;
-      std::string fileprefix_b = "balancede";
+      std::string fileprefix_b = "balanced";
       t8_forest_write_vtk_ext (parallel_forest, fileprefix_b.c_str(), 1, 1,
                          1, 1, 0,
                          0, 1, 0, nullptr);
 
       parallel_forest = dealii::internal::t8code::partition(parallel_forest, T8_GHOST_VERTICES);
-      std::string fileprefix_p = "partitionede";
+      std::string fileprefix_p = "partitioned";
       Assert(t8_forest_get_user_data(parallel_forest) == this, ExcInternalError());
       std::cout<< "!!!!forest set balance after partition: "<< parallel_forest->set_balance<<" !!!"<<std::endl;
       t8_forest_write_vtk_ext (parallel_forest, fileprefix_p.c_str(), 1, 1,
