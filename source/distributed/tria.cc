@@ -27,11 +27,16 @@
 #include <deal.II/grid/tria_iterator.h>
 #include <deal.II/grid/grid_out.h>
 
+#include <t8_cmesh.hxx>
 #include <t8_cmesh/t8_cmesh_examples.h>
 #include <t8_cmesh/t8_cmesh_types.h>
 #include <t8_data/t8_element_array_iterator.hxx>
 #include <t8_forest/t8_forest_ghost.h>
+#include <t8_vtk/t8_vtk_writer.h>
+#  include <t8_schemes/t8_scheme.hxx>
 #include <t8_schemes/t8_default/t8_default.hxx>
+#include <t8_geometry/t8_geometry_implementations/t8_geometry_linear.hxx>
+#include <t8_geometry/t8_geometry_with_vertices.hxx>
 #include <t8_schemes/t8_default/t8_default_tri/t8_dtri.h>
 #include <t8_vec.h>
 
@@ -68,6 +73,19 @@ namespace internal
         {2,3,1,0,6,7,5,4}, 
         {1,2,3,0,5,6,7,4},
         {1,3,0,2,5,7,4,6}
+      };
+
+      const std::vector<std::vector<int> >
+        dealii_to_t8_faces = 
+      {
+        {}, //vertex has no faces
+        {0,1}, //line is oriented the same
+        {0,1,2,3}, //quad is oriented the same
+        {2,0,1}, //tri is rotated by one
+        {0,1,2,3,4,5,6,7},//hex
+        {},//tet
+        {},//prism
+        {}//pyramid
       };
 
       namespace TriangulationImplementation
@@ -220,16 +238,13 @@ namespace parallel
       const types::subdomain_id                                   my_subdomain,
       const int dealii_type)
     {
-      std::cout<<"match_tree_recursively:"<<std::endl;
-      std::cout<<dealii_cell->id()<<" with type "<< dealii_type <<std::endl;
 
-
-      dealii::internal::t8code::types::eclass tree_class = t8_eclass_from_reference_cell(dealii_cell->reference_cell());
-      dealii::internal::t8code::types::eclass_scheme *eclass_scheme =
-        t8_forest_get_eclass_scheme(forest, tree_class);
-      eclass_scheme->t8_element_debug_print(t8code_cell);
-      auto compare_lambda = [eclass_scheme](auto x, auto y) {
-        return eclass_scheme->t8_element_compare(x, y) < 0;
+      dealii::internal::t8code::types::eclass eclass = t8_eclass_from_reference_cell(dealii_cell->reference_cell());
+      dealii::internal::t8code::types::scheme_collection *scheme =
+        t8_forest_get_scheme(forest);
+//      scheme->t8_element_debug_print(eclass,t8code_cell);
+      auto compare_lambda = [scheme,eclass](auto x, auto y) {
+        return scheme->element_compare(eclass, x, y) < 0;
       };
 
 
@@ -240,9 +255,7 @@ namespace parallel
         {
           // yes, cell found in local part of p4est
           delete_all_children<dim, spacedim>(dealii_cell);
-          std::cout<<"found local cell: "<<dealii_cell->id()<<std::endl;
           if (dealii_cell->is_active()){
-            std::cout<<"found deal leaf: "<<dealii_cell->id()<<std::endl;
             dealii_cell->set_subdomain_id(my_subdomain);
           }
         }
@@ -260,16 +273,13 @@ namespace parallel
               typename dealii::internal::t8code::types::element
                 *t8code_child[GeometryInfo<dim>::max_children_per_cell];
 
-              // TODO: remove, replcae by t8_element_nwe(length);
-              for (unsigned int c = 0;
-                   c < GeometryInfo<dim>::max_children_per_cell;
-                   ++c)
-                dealii::internal::t8code::element_new(forest,
-                                                      tree_class,
-                                                      t8code_child + c);
+              dealii::internal::t8code::element_new(forest,
+                                                      eclass,
+                                                      GeometryInfo<dim>::max_children_per_cell,
+                                                      t8code_child);
 
               dealii::internal::t8code::element_children(forest,
-                                                         tree_class,
+                                                         eclass,
                                                          t8code_cell,
                                                          t8code_child);
 
@@ -278,7 +288,7 @@ namespace parallel
                    c < GeometryInfo<dim>::max_children_per_cell;
                    ++c)
 {
-                        const int t8_child_id = (tree_class == T8_ECLASS_TRIANGLE)? 
+                        const int t8_child_id = (eclass == T8_ECLASS_TRIANGLE)? 
                                   dealii::internal::parallel::distributed::deal_to_t8code_children[dealii_type][c] : c;
 
                 if (dealii::internal::t8code::element_overlaps_tree(
@@ -297,7 +307,7 @@ namespace parallel
                     // at least some part of the tree rooted in this child is
                     // locally available
                     const int child_dealii_type = ((c%4)!=3) ? dealii_type : (dealii_type + 1) % 6;
-                    const int t8_child_id = (tree_class == T8_ECLASS_TRIANGLE)? 
+                    const int t8_child_id = (eclass == T8_ECLASS_TRIANGLE)? 
                                   dealii::internal::parallel::distributed::deal_to_t8code_children[dealii_type][c] : c;
 
                     match_tree_recursively<dim, spacedim>(tree,
@@ -307,12 +317,9 @@ namespace parallel
                                                           my_subdomain, child_dealii_type);
                   }
             }
-              for (unsigned int c = 0;
-                   c < GeometryInfo<dim>::max_children_per_cell;
-                   ++c)
-                dealii::internal::t8code::element_destroy(forest,
-                                                          tree_class,
-                                                          t8code_child + c);
+              dealii::internal::t8code::element_destroy(forest,
+                                                          eclass, GeometryInfo<dim>::max_children_per_cell,
+                                                          t8code_child);
             }
         }
     }
@@ -335,7 +342,7 @@ namespace parallel
       dealii::internal::t8code::types::element* t8code_cell;
       
       dealii::internal::t8code::element_new(forest,
-                                            ghost_eclass,
+                                            ghost_eclass,1,
                                             &t8code_cell);
 
       dealii::internal::t8code::init_root(forest,
@@ -352,7 +359,7 @@ namespace parallel
               cell->clear_coarsen_flag();
               cell->set_refine_flag();
                     dealii::internal::t8code::element_destroy(forest,
-                                            ghost_eclass,
+                                            ghost_eclass,1,
                                             &t8code_cell);
               return;
             }
@@ -373,7 +380,7 @@ namespace parallel
         }
 
       dealii::internal::t8code::element_destroy(forest,
-                                            ghost_eclass,
+                                            ghost_eclass,1,
                                             &t8code_cell);
 
       typename Triangulation<dim, spacedim>::cell_iterator cell(tria,
@@ -431,82 +438,59 @@ namespace parallel
     DEAL_II_CXX20_REQUIRES((concepts::is_valid_dim_spacedim<dim, spacedim>))
     void Triangulation<dim, spacedim>::copy_new_triangulation_to_t8code()
     {
-      cmesh = //t8_cmesh_new_periodic_hybrid(this->mpi_communicator);
-        t8_cmesh_new_hypercube(T8_ECLASS_QUAD, this->mpi_communicator, 0, 0, 0);
-      scheme_collection = t8_scheme_new_default_cxx();
+      //TODO!! coarse mesh permutation!!!
+      t8_cmesh_init(&cmesh);
+      t8_cmesh_register_geometry<t8_geometry_linear> (cmesh);
+
+      for(const auto & cell:this->active_cell_iterators()){ 
+        const auto t8_index = coarse_cell_to_t8code_tree_permutation[cell->index()];
+        t8_eclass_t eclass = t8_eclass_from_reference_cell(cell->reference_cell());
+        t8_cmesh_set_tree_class (cmesh, t8_index, eclass);
+        std::vector<double> coords(3*cell->n_vertices());
+        for(unsigned int ivertex=0; ivertex < cell->n_vertices();ivertex++){
+          const auto &vertex = cell->vertex(ivertex);
+          std::cout<<vertex<<std::endl;
+          coords[3*ivertex+0]=vertex[0];
+          coords[3*ivertex+1]=vertex[1];
+          coords[3*ivertex+2]=0;
+        }
+        t8_cmesh_set_tree_vertices (cmesh, t8_index, coords.data(), cell->n_vertices());
+
+        for(unsigned int iface=0; iface< cell->n_faces();iface++){
+          if(cell->neighbor_index(iface)==-1){
+            continue;
+          }
+          const auto &t8_neighbor_index = coarse_cell_to_t8code_tree_permutation[cell->neighbor_index(iface)];
+          if(t8_index<t8_neighbor_index){
+              const auto ineighface = cell->neighbor_of_neighbor(iface);
+              int t8_iface = dealii::internal::parallel::distributed::dealii_to_t8_faces[eclass][iface];
+              t8_eclass_t neigh_eclass = t8_eclass_from_reference_cell(cell->neighbor(iface)->reference_cell());
+              int t8_ineighface = dealii::internal::parallel::distributed::dealii_to_t8_faces[neigh_eclass][ineighface];
+
+              unsigned int orientation = (cell->face_orientation(iface) != cell->neighbor(iface)->face_orientation(ineighface));//cell->combined_face_orientation(iface);
+              if(eclass == T8_ECLASS_TRIANGLE && iface == 2){
+                std::cout<<"switched orientation because own cell is triangle and on face 2"<<std::endl;
+                orientation = !orientation;
+              }
+              if(neigh_eclass == T8_ECLASS_TRIANGLE && ineighface == 2){
+                std::cout<<"switched orientation because neighbor cell is triangle and on face 2"<<std::endl;
+                orientation = !orientation;
+              }
+
+              std::cout<<"added face join from cell "<<t8_index<<" face "<<t8_iface<<" to cell "<<t8_neighbor_index<<" face " << t8_ineighface <<" with orientation "<<orientation <<std::endl;
+              std::cout<<cell->face_orientation(iface)<<" "<<cell->neighbor(iface)->face_orientation(ineighface)<<std::endl;
+              std::cout<<"t8_cmesh_set_join(cmesh,"<< t8_index<<", "<<t8_neighbor_index<<", "<< t8_iface <<", "<< t8_ineighface<<", "<<orientation <<")"<<std::endl;
+              t8_cmesh_set_join(cmesh, t8_index, t8_neighbor_index, t8_iface, t8_ineighface, orientation);
+            }
+        }
+      }
+      t8_cmesh_commit(cmesh, this->mpi_communicator);
+
+      scheme_collection = t8_scheme_new_default();
       parallel_forest   = t8_forest_new_uniform(
-        cmesh, scheme_collection, 3, 1, this->mpi_communicator);
+        cmesh, scheme_collection, 0, 1, this->mpi_communicator);
+      t8_forest_set_user_data(parallel_forest, this);
 
-#if 1
-      typename dealii::internal::t8code::types::forest partitioned_forest;
-      const auto adapt_fn = [](t8_forest_t         forest,
-                               t8_forest_t         forest_from,
-                               t8_locidx_t         which_tree,
-                               t8_locidx_t         lelement_id,
-                               t8_eclass_scheme_c *ts,
-                               const int           is_family,
-                               const int           num_elements,
-                               t8_element_t       *elements[]) {
-        (void)forest;
-        (void)lelement_id;
-        (void)ts;
-        (void)is_family;
-        (void)num_elements;
-
-        double min_corner[3];
-        double max_corner[3];
-        /* Compute the element's centroid coordinates. */
-        t8_forest_element_coordinate(forest_from,
-                                   which_tree,
-                                   elements[0],0,
-                                   min_corner);
-
-        double dist_min = t8_vec_norm(min_corner);
-        t8_forest_element_coordinate(forest_from,
-                                   which_tree,
-                                   elements[0],3, //TODO:generalize
-                                   max_corner);
-
-        double dist_max = t8_vec_norm(max_corner);
-
-        if (dist_max >= 0.5 && dist_min <= 0.5)
-          {
-            /* Refine this element. */
-            return 1;
-          }
-        else
-          {
-            return 0;
-          }
-      };
-
-
-      t8_forest_init (&partitioned_forest);
-      t8_forest_set_adapt(partitioned_forest, parallel_forest, adapt_fn, 0);
-      t8_forest_set_balance(partitioned_forest, parallel_forest, 0);
-      t8_forest_set_partition (partitioned_forest, parallel_forest, 0);
-      t8_forest_set_ghost (partitioned_forest, 1, T8_GHOST_FACES);
-      t8_forest_commit (partitioned_forest);
-      parallel_forest = partitioned_forest;
-
-      t8_forest_init (&partitioned_forest);
-      t8_forest_set_adapt(partitioned_forest, parallel_forest, adapt_fn, 0);
-      t8_forest_set_balance(partitioned_forest, parallel_forest, 0);
-      t8_forest_set_partition (partitioned_forest, parallel_forest, 0);
-      t8_forest_set_ghost (partitioned_forest, 1, T8_GHOST_FACES);
-      t8_forest_commit (partitioned_forest);
-      parallel_forest = partitioned_forest;
-
-      t8_forest_init (&partitioned_forest);
-      t8_forest_set_adapt(partitioned_forest, parallel_forest, adapt_fn, 0);
-      t8_forest_set_balance(partitioned_forest, parallel_forest, 0);
-      t8_forest_set_partition (partitioned_forest, parallel_forest, 0);
-      t8_forest_set_ghost (partitioned_forest, 1, T8_GHOST_FACES);
-      t8_forest_commit (partitioned_forest);
-      parallel_forest = partitioned_forest;
-
-
-#endif
     }
 
     template <int dim, int spacedim>
@@ -588,7 +572,7 @@ namespace parallel
           loop_iter++;
           for (const auto &cell : this->cell_iterators_on_level(0))
             {
-                dealii::internal::t8code::types::eclass tree_class =
+                dealii::internal::t8code::types::eclass eclass =
                   t8_eclass_from_reference_cell(cell->reference_cell());
 
               // if this processor stores no part of the forest that comes out
@@ -617,11 +601,11 @@ namespace parallel
 
 
                   dealii::internal::t8code::element_new(parallel_forest,
-                                                        tree_class,
+                                                        eclass,1,
                                                         &t8code_coarse_cell);
 
                   dealii::internal::t8code::init_root(parallel_forest,
-                                                      tree_class,
+                                                      eclass,
                                                       t8code_coarse_cell);
 
                   match_tree_recursively<dim, spacedim>(*tree,
@@ -631,7 +615,7 @@ namespace parallel
                                                         this->my_subdomain,
                                                         0);
                   dealii::internal::t8code::element_destroy(
-                    parallel_forest, tree_class, &t8code_coarse_cell);
+                    parallel_forest, eclass, 1,&t8code_coarse_cell);
                 }
             }
 
@@ -761,9 +745,9 @@ namespace parallel
               DEAL_II_ASSERT_UNREACHABLE();
             }
 
-            // for (const auto &cell: this->active_cell_iterators()){
-            //   cell->set_material_id(cell->subdomain_id());
-            // }
+            for (const auto &cell: this->active_cell_iterators()){
+               cell->set_material_id(cell->subdomain_id());
+            }
 
             
 
@@ -832,6 +816,10 @@ namespace parallel
       // of stored or transferred data.
       //      update_cell_relations();
     }
+
+
+
+
     template <int dim, int spacedim>
     DEAL_II_CXX20_REQUIRES((concepts::is_valid_dim_spacedim<dim, spacedim>))
     Triangulation<dim, spacedim>::Triangulation(
@@ -895,12 +883,334 @@ namespace parallel
 
       this->update_number_cache();
     }
+
+
+
+
+
+
+
+  /**
+   * A data structure that we use to store which cells (indicated by
+   * internal::t8code::types::element objects) shall be refined and which
+   * shall be coarsened.
+   */
+  template <int dim, int spacedim>
+  class RefineAndCoarsenList
+  {
+  public:
+    RefineAndCoarsenList(const Triangulation<dim, spacedim> &triangulation,
+    dealii::internal::t8code::types::forest forest,
+                         const std::vector<types::global_dof_index>
+                           &t8code_tree_to_coarse_cell_permutation,
+                         const types::subdomain_id my_subdomain);
+
+    /**
+     * A callback function that we pass to the t8code data structures when a
+     * forest is to be refined. The t8code functions call it back with a tree
+     * (the index of the tree that grows out of a given coarse cell) and a
+     * refinement path from that coarse cell to a terminal/leaf cell. The
+     * function returns whether the corresponding cell in the deal.II
+     * triangulation has the refined flag set.
+     */
+
+    static int
+    adapt_callback(
+      typename dealii::internal::t8code::types::forest    forest,
+      typename dealii::internal::t8code::types::forest    forest_from,
+      typename dealii::internal::t8code::types::locidx    which_tree,
+      typename dealii::internal::t8code::types::eclass    eclass,
+      typename dealii::internal::t8code::types::locidx    lelement_id,
+      const typename dealii::internal::t8code::types::scheme_collection    *scheme,
+      const int is_family,
+      const int num_elements,
+      typename dealii::internal::t8code::types::element *elements[]);
+
+
+
+
+  private:
+    std::vector<std::vector<int> >adapt_list;
+
+    void
+    build_list(
+      const typename Triangulation<dim, spacedim>::cell_iterator &cell,
+      const typename dealii::internal::t8code::types::forest        forest,
+      const typename dealii::internal::t8code::types::locidx        which_tree,
+      const typename dealii::internal::t8code::types::element       *t8code_cell,
+      const types::subdomain_id                                   myid, const int dealii_type = 0);
+  };
+
+
+
+  template <int dim, int spacedim>
+  RefineAndCoarsenList<dim, spacedim>::RefineAndCoarsenList(
+    const Triangulation<dim, spacedim> &triangulation,
+    dealii::internal::t8code::types::forest forest,
+    const std::vector<types::global_dof_index>
+                             &t8code_tree_to_coarse_cell_permutation,
+    const types::subdomain_id my_subdomain)
+  {
+
+    t8_locidx_t n_coarse_elements = t8_forest_get_num_local_trees(forest);
+    adapt_list.clear();
+    adapt_list.resize(n_coarse_elements);
+    for(t8_locidx_t itree; itree <n_coarse_elements; itree++){
+      t8_locidx_t n_fine_elements_in_coarse_element = t8_forest_get_tree_num_elements(forest, itree);
+      adapt_list[itree].clear();
+      adapt_list[itree].reserve(n_fine_elements_in_coarse_element);
+    }
+
+
+    // now build the lists of cells that are flagged. note that t8code will
+    // traverse its cells in the order in which trees appear in the
+    // forest. this order is not the same as the order of coarse cells in the
+    // deal.II Triangulation because we have translated everything by the
+    // coarse_cell_to_t8code_tree_permutation permutation. in order to make
+    // sure that the output array is already in the correct order, traverse
+    // our coarse cells in the same order in which t8code will:
+    const auto first_local = t8_forest_get_first_local_tree_id(forest);
+    typename dealii::internal::t8code::types::element *t8code_cell;
+      std::cout<<"all cells with refinement flag before building list: "<<std::endl;
+        for (const auto & cell : triangulation.active_cell_iterators()){
+          if(cell->refine_flag_set()){
+            std::cout<<cell->id()<<std::endl;
+          }
+        }
+    for (int c = 0; c < n_coarse_elements; ++c)
+      {
+        unsigned int global_coarse_cell_index =
+          t8code_tree_to_coarse_cell_permutation[c + first_local];
+        
+        typename dealii::internal::t8code::types::eclass eclass = t8_forest_get_tree_class(forest, c);
+        dealii::internal::t8code::element_new(forest, eclass, 1 , &t8code_cell);
+
+        const typename Triangulation<dim, spacedim>::cell_iterator cell(
+          &triangulation, 0, global_coarse_cell_index);
+
+        dealii::internal::t8code::init_root(forest, eclass, t8code_cell);
+        build_list(cell, forest, c, t8code_cell, my_subdomain, 0);
+        std::cout<<"adapt values for local forest coarse cell "<<c<<": ";
+        for(const auto& adapt_value : adapt_list[c]){
+          std::cout<<adapt_value<<" ";
+        }
+        std::cout<<std::endl;
+        dealii::internal::t8code::element_destroy(forest, eclass, 1 , &t8code_cell);
+      }
+
+  }
+
+
+
+  template <int dim, int spacedim>
+  void
+  RefineAndCoarsenList<dim, spacedim>::build_list(
+    const typename Triangulation<dim, spacedim>::cell_iterator &cell,
+    const typename dealii::internal::t8code::types::forest forest,
+    const typename dealii::internal::t8code::types::locidx  which_tree,
+    const typename dealii::internal::t8code::types::element *t8code_cell,
+    const types::subdomain_id                       my_subdomain,
+    const int dealii_type)
+  {
+    std::cout<<"call build list recursively on tree: "<< which_tree<<", dealii_type"<<dealii_type<<", cellid: "<<cell->id()<<std::endl;
+
+    if (cell->is_active())
+      {
+        if (cell->subdomain_id() == my_subdomain)
+          {
+            if (cell->refine_flag_set()){
+              adapt_list[which_tree].push_back(1);
+              std::cout<<"set refine flag for cell "<<cell->id()<<std::endl;
+            }
+            else if (cell->coarsen_flag_set())
+              adapt_list[which_tree].push_back(-1);
+            else 
+              adapt_list[which_tree].push_back(0);
+
+          }
+      }
+    else
+      {
+        typename dealii::internal::t8code::types::element*
+          t8code_child[GeometryInfo<dim>::max_children_per_cell];
+        typename dealii::internal::t8code::types::eclass eclass = t8_forest_get_eclass(forest, which_tree);
+
+        dealii::internal::t8code::element_new(forest, eclass, GeometryInfo<dim>::max_children_per_cell, t8code_child);
+        dealii::internal::t8code::element_children(forest, eclass, t8code_cell,
+                                                            t8code_child);
+
+        bool any_child_coarsen_flag_set;
+        bool all_child_coarsen_flag_set;
+        for (unsigned int c = 0; c < GeometryInfo<dim>::max_children_per_cell;
+             ++c)
+          {
+            int deal_child_id = (eclass == T8_ECLASS_TRIANGLE) ? dealii::internal::parallel::distributed::t8code_to_deal_children[dealii_type][c] : c;
+            int deal_child_type = (deal_child_id % 4 == 3)? (dealii_type + 1) % 6 : dealii_type;
+            std::cout<<"deal_child_id: "<<deal_child_id<<", t8_child_id: "<<c<<std::endl;
+            build_list(cell->child(deal_child_id), forest, which_tree, t8code_child[c], my_subdomain, deal_child_type);
+            if(cell->child(deal_child_id)->is_active() && cell->child(deal_child_id)->coarsen_flag_set()){
+              any_child_coarsen_flag_set = true;
+            }else{
+              all_child_coarsen_flag_set = false;
+            }
+          }
+        dealii::internal::t8code::element_destroy(forest, eclass, GeometryInfo<dim>::max_children_per_cell, t8code_child);
+        if(any_child_coarsen_flag_set && !all_child_coarsen_flag_set){
+          dealii::internal::t8code::types::locidx num_elements_in_tree = adapt_list[which_tree].size();
+          for (unsigned int c = 0; c < GeometryInfo<dim>::max_children_per_cell;
+             ++c)
+          {
+            if (adapt_list[which_tree][num_elements_in_tree-1-c] == -1){
+              adapt_list[which_tree][num_elements_in_tree-1-c] = 0;
+            }
+          }
+        }
+      }
+  }
+
+
+  template <int dim, int spacedim>
+  int
+  RefineAndCoarsenList<dim, spacedim>::adapt_callback(
+      typename dealii::internal::t8code::types::forest    forest,
+      typename dealii::internal::t8code::types::forest    forest_from,
+      typename dealii::internal::t8code::types::locidx    which_tree,
+      typename dealii::internal::t8code::types::eclass    eclass,
+      typename dealii::internal::t8code::types::locidx    lelement_id,
+      const typename dealii::internal::t8code::types::scheme_collection    *scheme,
+      const int is_family,
+      const int num_elements,
+      typename dealii::internal::t8code::types::element *elements[])
+  {
+    (void) forest;
+    (void) eclass;
+    (void) scheme;
+    (void) is_family;
+    (void) num_elements;
+    (void) elements;
+    RefineAndCoarsenList<dim, spacedim> *this_object =
+      reinterpret_cast<RefineAndCoarsenList<dim, spacedim> *>(t8_forest_get_user_data(forest_from));
+      std::cout<<"found value" << this_object->adapt_list[which_tree][lelement_id] <<" for tree "<<which_tree<<" and elem "<<lelement_id<<std::endl; 
+      return this_object->adapt_list[which_tree][lelement_id];
+  }
+
+
     template <int dim, int spacedim>
     DEAL_II_CXX20_REQUIRES((concepts::is_valid_dim_spacedim<dim, spacedim>))
     void Triangulation<dim, spacedim>::execute_coarsening_and_refinement()
     {
 
+      this->prepare_coarsening_and_refinement();
+
+      // signal that refinement is going to happen
+//      this->signals.pre_distributed_refinement();
+
+      // now do the work we're supposed to do when we are in charge
+      // make sure all flags are cleared on cells we don't own, since nothing
+      // good can come of that if they are still around
+      for (const auto &cell : this->active_cell_iterators())
+        if (cell->is_ghost() || cell->is_artificial())
+          {
+            cell->clear_refine_flag();
+            cell->clear_coarsen_flag();
+          }
+
+
+      // count how many cells will be refined and coarsened, and allocate that
+      // much memory
+      RefineAndCoarsenList<dim, spacedim> refine_and_coarsen_list(
+        *this, parallel_forest, t8code_tree_to_coarse_cell_permutation, this->my_subdomain);
+
+      std::cout<< "!!!!forest set balance before adapt: "<< parallel_forest->set_balance<<" !!!"<<std::endl;
+
+
+      std::string fileprefix_o = "originale";
+      t8_forest_write_vtk_ext (parallel_forest, fileprefix_o.c_str(), 1, 1,
+                         1, 1, 0,
+                         0, 1, 0, nullptr);
+
+      // copy refine and coarsen flags into t8code and execute the refinement
+      // and coarsening. this uses the refine_and_coarsen_list just built,
+      // which is communicated to the callback functions through
+      // t8code's user_data object
+      Assert(t8_forest_get_user_data(parallel_forest) == this, ExcInternalError());
+      t8_forest_set_user_data(parallel_forest, &refine_and_coarsen_list);
+      std::cout<<"all cells with refinement flag before going into adapt: "<<std::endl;
+        for (const auto & cell : this->active_cell_iterators()){
+          if(cell->refine_flag_set()){
+            std::cout<<cell->id()<<std::endl;
+          }
+        }
+      parallel_forest = dealii::internal::t8code::adapt(
+        parallel_forest,
+        &RefineAndCoarsenList<dim, spacedim>::adapt_callback);
+
+      // reset the pointer
+      t8_forest_set_user_data(parallel_forest, this);
+
+      std::cout<< "!!!!forest set balance after adapt: "<< parallel_forest->set_balance<<" !!!"<<std::endl;
+      std::string fileprefix_a = "adapte";
+      t8_forest_write_vtk_ext (parallel_forest, fileprefix_a.c_str(), 1, 1,
+                         1, 1, 0,
+                         0, 1, 0, nullptr);
+
+      // enforce 2:1 hanging node condition
+      parallel_forest = dealii::internal::t8code::balance(parallel_forest);
+      Assert(t8_forest_get_user_data(parallel_forest) == this, ExcInternalError());
+      std::cout<< "!!!!forest set balance after balance: "<< parallel_forest->set_balance<<" !!!"<<std::endl;
+      std::string fileprefix_b = "balancede";
+      t8_forest_write_vtk_ext (parallel_forest, fileprefix_b.c_str(), 1, 1,
+                         1, 1, 0,
+                         0, 1, 0, nullptr);
+
+      parallel_forest = dealii::internal::t8code::partition(parallel_forest, T8_GHOST_VERTICES);
+      std::string fileprefix_p = "partitionede";
+      Assert(t8_forest_get_user_data(parallel_forest) == this, ExcInternalError());
+      std::cout<< "!!!!forest set balance after partition: "<< parallel_forest->set_balance<<" !!!"<<std::endl;
+      t8_forest_write_vtk_ext (parallel_forest, fileprefix_p.c_str(), 1, 1,
+                         1, 1, 0,
+                         0, 1, 0, nullptr);
+
+      // since refinement and/or coarsening on the parallel forest
+      // has happened, we need to update the quadrant cell relations
+//TODO! HOW?
+//      update_cell_relations();
+
+      // signals that parallel_forest has been refined and cell relations have
+      // been updated
+//      this->signals.post_t8code_refinement();
+      // finally copy back from local part of tree to deal.II
+      // triangulation. before doing so, make sure there are no refine or
+      // coarsen flags pending
+      for (const auto &cell : this->active_cell_iterators())
+        {
+          cell->clear_refine_flag();
+          cell->clear_coarsen_flag();
+        }
+
+      try
+        {
+          copy_local_forest_to_triangulation();
+        }
+      catch (const typename Triangulation<dim>::DistortedCellList &)
+        {
+          // the underlying triangulation should not be checking for distorted
+          // cells
+          DEAL_II_ASSERT_UNREACHABLE();
+        }
+
+//      this->update_periodic_face_map();
+      this->update_number_cache();
+
+      // signal that refinement is finished
+//      this->signals.post_distributed_refinement();//
     }
+    
+
+
+
+
+
     template <int dim, int spacedim>
     DEAL_II_CXX20_REQUIRES((concepts::is_valid_dim_spacedim<dim, spacedim>))
     bool Triangulation<dim, spacedim>::is_multilevel_hierarchy_constructed()

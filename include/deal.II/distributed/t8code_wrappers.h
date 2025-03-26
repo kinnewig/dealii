@@ -26,10 +26,10 @@
 #    include <t8.h>
 #    include <t8_cmesh.h>
 #    include <t8_element.h>
-#    include <t8_element.hxx>
 #    include <t8_forest/t8_forest.h>
 #    include <t8_forest/t8_forest_general.h>
 #    include <t8_forest/t8_forest_types.h>
+#    include <t8_schemes/t8_scheme.hxx>
 
 #    include <limits>
 
@@ -45,27 +45,20 @@ namespace internal
       using tree   = t8_tree_struct_t;
       typedef t8_element_t element;
       using eclass            = t8_eclass_t;
-      using eclass_scheme     = struct t8_eclass_scheme;
-      using scheme_collection = t8_scheme_cxx_t;
+//      using eclass_scheme     = struct t8_eclass_scheme;
+      using scheme_collection = const t8_scheme;
       using locidx            = t8_locidx_t;
       using gloidx            = t8_gloidx_t;
       using ghost             = t8_forest_ghost_t;
       using ghost_type        = t8_ghost_type_t;
     };
 
-    struct functions
-    {
-#    if 0
-        static types::ghost *(&ghost_new)(types::forest      forest,
-                                                types::ghost_type btype);
 
-        static void (&ghost_destroy)(types::ghost *ghost);
+    types::forest adapt(types::forest, t8_forest_adapt_t adapt_callback);
+    types::forest balance(types::forest);
+    types::forest partition(types::forest, t8_ghost_type_t ghost_type);
+    types::forest adapt_balance_partition(types::forest, t8_forest_adapt_t adapt_callback, t8_ghost_type_t ghost_type);
 
-
-
-        static void ()
-#    endif
-    };
     void
     init_root(const types::forest   forest,
               types::eclass   eclass,
@@ -73,6 +66,7 @@ namespace internal
     void
     element_new(const types::forest    forest,
                 types::eclass    eclass,
+                types::locidx length,
                 types::element **element);
     int
     element_level(const types::forest    forest,
@@ -81,6 +75,7 @@ namespace internal
     void
     element_destroy(const types::forest    forest,
                     types::eclass    eclass,
+                types::locidx length,
                     types::element **element);
     void
     element_children(const types::forest         forest,

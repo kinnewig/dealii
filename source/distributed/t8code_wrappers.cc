@@ -19,7 +19,7 @@
 DEAL_II_NAMESPACE_OPEN
 
 #ifdef DEAL_II_WITH_T8CODE
-#  include <t8_element.hxx>
+#  include <t8_schemes/t8_scheme.hxx>
 #  include <t8_forest/t8_forest_ghost.h>
 #  include <t8_forest/t8_forest_types.h>
 
@@ -27,107 +27,137 @@ namespace internal
 {
   namespace t8code
   {
+
+    types::forest adapt(types::forest forest, t8_forest_adapt_t adapt_callback){
+  t8_forest_t new_forest;
+  t8_forest_init (&new_forest);
+  t8_forest_set_adapt (new_forest, forest, adapt_callback, 0);
+  t8_forest_set_user_data(new_forest, t8_forest_get_user_data(forest));
+  t8_forest_commit (new_forest);
+  return new_forest;
+    }
+    types::forest balance(types::forest forest){
+  t8_forest_t new_forest;
+  t8_forest_init (&new_forest);
+  t8_forest_set_balance (new_forest, forest, 0);
+  t8_forest_set_user_data(new_forest, t8_forest_get_user_data(forest));
+  t8_forest_commit (new_forest);
+  return new_forest;
+    }
+    types::forest partition(types::forest forest, t8_ghost_type_t ghost_type){
+  t8_forest_t new_forest;
+  t8_forest_init (&new_forest);
+  t8_forest_set_partition (new_forest, forest, 0);
+  t8_forest_set_ghost (new_forest, 1, ghost_type);
+  t8_forest_set_user_data(new_forest, t8_forest_get_user_data(forest));
+  t8_forest_commit (new_forest);
+  return new_forest;
+    }
+
+
     void
     init_root(const types::forest   forest,
-              types::eclass   tree_class,
+              types::eclass   eclass,
               types::element *element)
     {
-      types::eclass_scheme *eclass_scheme =
-        t8_forest_get_eclass_scheme(forest, tree_class);
-      eclass_scheme->t8_element_level(element);
-      eclass_scheme->t8_element_root(element);
+      types::scheme_collection *scheme =
+        t8_forest_get_scheme(forest);
+      scheme->element_get_level(eclass, element);
+      scheme->get_root(eclass, element);
     }
 
     void
     element_new(const types::forest    forest,
-                types::eclass    tree_class,
+                types::eclass    eclass,
+                types::locidx length,
                 types::element **pelement)
     {
-      types::eclass_scheme *eclass_scheme =
-        t8_forest_get_eclass_scheme(forest, tree_class);
-      eclass_scheme->t8_element_new(1, pelement);
+      types::scheme_collection *scheme =
+        t8_forest_get_scheme(forest);
+      scheme->element_new(eclass, length, pelement);
     }
     int
     element_level(const types::forest   forest,
-                  types::eclass   tree_class,
+                  types::eclass   eclass,
                   const types::element *element)
     {
-      types::eclass_scheme *eclass_scheme =
-        t8_forest_get_eclass_scheme(forest, tree_class);
-      return eclass_scheme->t8_element_level(element);
+      types::scheme_collection *scheme =
+        t8_forest_get_scheme(forest);
+      return scheme->element_get_level(eclass, element);
     }
     void
     element_destroy(const types::forest    forest,
-                    types::eclass    tree_class,
+                    types::eclass    eclass,
+                types::locidx length,
                     types::element **pelement)
     {
-      types::eclass_scheme *eclass_scheme =
-        t8_forest_get_eclass_scheme(forest, tree_class);
-      eclass_scheme->t8_element_destroy(1, pelement);
+      types::scheme_collection *scheme =
+        t8_forest_get_scheme(forest);
+      scheme->element_destroy(eclass, length, pelement);
     }
 
 
     void
     element_child(const types::forest         forest,
-                     types::eclass         tree_class,
+                     types::eclass         eclass,
                      const types::element *element,
                      int childid,
                      types::element      *child)
     {
-      types::eclass_scheme *eclass_scheme =
-        t8_forest_get_eclass_scheme(forest, tree_class);
-      eclass_scheme->t8_element_child(element, childid, child);
+      types::scheme_collection *scheme =
+        t8_forest_get_scheme(forest);
+      scheme->element_get_child(eclass, element, childid, child);
     }
 
 
     void
     element_children(const types::forest         forest,
-                     types::eclass         tree_class,
+                     types::eclass         eclass,
                      const types::element *element,
                      types::element      **children)
     {
-      types::eclass_scheme *eclass_scheme =
-        t8_forest_get_eclass_scheme(forest, tree_class);
-      int num_children = eclass_scheme->t8_element_num_children(element);
-      eclass_scheme->t8_element_children(element, num_children, children);
+      types::scheme_collection *scheme =
+        t8_forest_get_scheme(forest);
+      int num_children = scheme->element_get_num_children(eclass, element);
+      scheme->element_get_children(eclass, element, num_children, children);
     }
     bool
     element_overlaps_tree(const types::forest   forest,
                           types::tree     tree,
                           const types::element *element)
     {
-      types::eclass         tree_class = tree.eclass;
-      types::eclass_scheme *eclass_scheme =
-        t8_forest_get_eclass_scheme(forest, tree_class);
+      types::eclass         eclass = tree.eclass;
+      types::scheme_collection *scheme =
+        t8_forest_get_scheme(forest);
       types::element *element_last_desc;
       bool            element_overlaps = true;
 
-      element_new(forest, tree_class, &element_last_desc);
-      const unsigned int maxlevel = eclass_scheme->t8_element_maxlevel();
-      eclass_scheme->t8_element_last_descendant(element,
+      element_new(forest, eclass, 1, &element_last_desc);
+      const unsigned int maxlevel = scheme->get_maxlevel(eclass);
+      scheme->element_get_last_descendant(eclass, element,
                                                 element_last_desc,
                                                 maxlevel);
-      if (eclass_scheme->t8_element_compare(element_last_desc,
+      if (scheme->element_compare(eclass, element_last_desc,
                                             tree.first_desc) < 0)
         element_overlaps = false;
 
-      element_destroy(forest, tree_class, &element_last_desc);
+      element_destroy(forest, eclass, 1, &element_last_desc);
 
       /* check if q is after the last tree quadrant */
-      if (eclass_scheme->t8_element_compare(tree.last_desc, element) < 0)
+      if (scheme->element_compare(eclass, tree.last_desc, element) < 0)
         element_overlaps = false;
 
       return element_overlaps;
     }
     int
     element_ancestor_id(const types::forest   forest,
-                        types::eclass   tree_class,
+                        types::eclass   eclass,
                         const types::element *element,
                         int             level)
     {
-      types::eclass_scheme *eclass_scheme =
-        t8_forest_get_eclass_scheme(forest, tree_class);
-      return eclass_scheme->t8_element_ancestor_id(element, level);
+      types::scheme_collection *scheme =
+        t8_forest_get_scheme(forest);
+      return scheme->element_get_ancestor_id(eclass, element, level);
     }
 
 
