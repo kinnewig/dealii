@@ -955,7 +955,7 @@ namespace parallel
     t8_locidx_t n_coarse_elements = t8_forest_get_num_local_trees(forest);
     adapt_list.clear();
     adapt_list.resize(n_coarse_elements);
-    for(t8_locidx_t itree; itree <n_coarse_elements; itree++){
+    for(t8_locidx_t itree=0; itree <n_coarse_elements; itree++){
       t8_locidx_t n_fine_elements_in_coarse_element = t8_forest_get_tree_num_elements(forest, itree);
       adapt_list[itree].clear();
       adapt_list[itree].reserve(n_fine_elements_in_coarse_element);
