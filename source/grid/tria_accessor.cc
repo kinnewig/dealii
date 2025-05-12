@@ -3058,12 +3058,7 @@ CellAccessor<dim, spacedim>::neighbor_child_on_subface(
               // shared face if both of them follow the same orientation type
               // (i.e., standard or non-standard).
               // we verify this with a XOR operation.
-              const unsigned int neighbor_subface =
-                (!(this->line_orientation(face)) !=
-                 !(neighbor_cell->line_orientation(neighbor_face))) ?
-                  (1 - subface) :
-                  subface;
-
+              const unsigned int neighbor_subface = neighbor_cell->face_orientation(neighbor_face) == 1 ?subface : (1 - subface);
               const unsigned int neighbor_child_index =
                 neighbor_cell->reference_cell().child_cell_on_face(
                   neighbor_face, neighbor_subface);
