@@ -483,6 +483,13 @@ namespace parallel
               t8_cmesh_set_join(cmesh, t8_index, t8_neighbor_index, t8_iface, t8_ineighface, orientation);
             }
         }
+        std::vector<t8_gloidx_t> vertex_list(cell->n_vertices());
+        for(unsigned int ivertex=0; ivertex< cell->n_vertices();ivertex++){
+          vertex_list[ivertex] = cell->vertex_index(ivertex);
+          std::cout << "local vertex "<<ivertex<<" connected to global vertex " << cell->vertex_index(ivertex);
+        }
+        t8_cmesh_set_global_vertices_of_tree(cmesh, t8_index, vertex_list.data(), cell->n_vertices());
+
       }
       t8_cmesh_commit(cmesh, this->mpi_communicator);
 
