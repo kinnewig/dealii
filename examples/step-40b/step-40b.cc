@@ -22,43 +22,15 @@
 // Most of the include files we need for this program have already been
 // discussed in previous programs. In particular, all of the following should
 // already be familiar friends:
+#include <deal.II/base/memory_space.h>
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/function.h>
 #include <deal.II/base/timer.h>
 
-#include <deal.II/lac/generic_linear_algebra.h>
-
-// This program can use either PETSc or Trilinos for its parallel
-// algebra needs. By default, if deal.II has been configured with
-// PETSc, it will use PETSc. Otherwise, the following few lines will
-// check that deal.II has been configured with Trilinos and take that.
-//
-// But there may be cases where you want to use Trilinos, even though
-// deal.II has *also* been configured with PETSc, for example to
-// compare the performance of these two libraries. To do this,
-// add the following \#define to the source code:
-// @code
-// #define FORCE_USE_OF_TRILINOS
-// @endcode
-//
-// Using this logic, the following lines will then import either the
-// PETSc or Trilinos wrappers into the namespace `LA` (for linear
-// algebra). In the former case, we are also defining the macro
-// `USE_PETSC_LA` so that we can detect if we are using PETSc (see
-// solve() for an example where this is necessary).
-namespace LA
-{
-#if defined(DEAL_II_WITH_PETSC) && !defined(DEAL_II_PETSC_WITH_COMPLEX) && \
-  !(defined(DEAL_II_WITH_TRILINOS) && defined(FORCE_USE_OF_TRILINOS))
-  using namespace dealii::LinearAlgebraPETSc;
-#  define USE_PETSC_LA
-#elif defined(DEAL_II_WITH_TRILINOS)
-  using namespace dealii::LinearAlgebraTrilinos;
-#else
-#  error DEAL_II_WITH_PETSC or DEAL_II_WITH_TRILINOS required
-#endif
-} // namespace LA
-
+// Tpetra vector stack:
+#include <deal.II/lac/trilinos_tpetra_sparse_matrix.h>
+#include <deal.II/lac/trilinos_tpetra_vector.h>
+#include <deal.II/lac/trilinos_tpetra_precondition.h>
 
 #include <deal.II/lac/vector.h>
 #include <deal.II/lac/full_matrix.h>
@@ -180,9 +152,9 @@ namespace Step40
 
     AffineConstraints<double> constraints;
 
-    LA::MPI::SparseMatrix system_matrix;
-    LA::MPI::Vector       locally_relevant_solution;
-    LA::MPI::Vector       system_rhs;
+    LinearAlgebra::TpetraWrappers::SparseMatrix<double> system_matrix;
+    LinearAlgebra::TpetraWrappers::Vector<double>       locally_relevant_solution;
+    LinearAlgebra::TpetraWrappers::Vector<double>       system_rhs;
 
     ConditionalOStream pcout;
     TimerOutput        computing_timer;
@@ -274,7 +246,10 @@ namespace Step40
     locally_relevant_solution.reinit(locally_owned_dofs,
                                      locally_relevant_dofs,
                                      mpi_communicator);
-    system_rhs.reinit(locally_owned_dofs, mpi_communicator);
+    // The probably most important change is,
+    // we need to know the entries into which we want 
+    // to write already during the creation of the vector!
+    system_rhs.reinit(locally_owned_dofs, locally_relevant_dofs, mpi_communicator, true);
 
     // The next step is to compute hanging node and boundary value
     // constraints, which we combine into a single object storing all
@@ -490,21 +465,17 @@ namespace Step40
   {
     TimerOutput::Scope t(computing_timer, "solve");
 
-    LA::MPI::Vector completely_distributed_solution(locally_owned_dofs,
-                                                    mpi_communicator);
+    LinearAlgebra::TpetraWrappers::Vector<double> completely_distributed_solution(locally_owned_dofs,
+                                                                                  mpi_communicator);
 
     SolverControl solver_control(dof_handler.n_dofs(),
                                  1e-6 * system_rhs.l2_norm());
-    LA::SolverCG  solver(solver_control);
+    SolverCG<LinearAlgebra::TpetraWrappers::Vector<double, MemorySpace::Host>> solver(solver_control);
 
-
-    LA::MPI::PreconditionAMG::AdditionalData data;
-#ifdef USE_PETSC_LA
-    data.symmetric_operator = true;
-#else
-    /* Trilinos defaults are good */
-#endif
-    LA::MPI::PreconditionAMG preconditioner;
+    
+    // The AMG preconditioner is not yet available
+    LinearAlgebra::TpetraWrappers::PreconditionJacobi<double, MemorySpace::Host>::AdditionalData data;
+    LinearAlgebra::TpetraWrappers::PreconditionJacobi<double, MemorySpace::Host> preconditioner;
     preconditioner.initialize(system_matrix, data);
 
     solver.solve(system_matrix,
