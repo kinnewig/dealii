@@ -354,7 +354,7 @@ namespace Step86
 
     homogeneous_constraints.clear();
     homogeneous_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
-    homogeneous_constraints.merge(hanging_nodes_constraints);
+    homogeneous_constraints.merge(hanging_nodes_constraints, dealii::AffineConstraints<double>::no_conflicts_allowed, true);
     VectorTools::interpolate_boundary_values(mapping, dof_handler,
                                              0,
                                              Functions::ZeroFunction<dim>(),
@@ -959,7 +959,7 @@ namespace Step86
         boundary_values_function.set_time(time);
         current_constraints.clear();
         current_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
-        current_constraints.merge(hanging_nodes_constraints);
+        current_constraints.merge(hanging_nodes_constraints, dealii::AffineConstraints<double>::no_conflicts_allowed, true);
         VectorTools::interpolate_boundary_values(mapping, dof_handler,
                                                  0,
                                                  boundary_values_function,
