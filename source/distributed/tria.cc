@@ -1166,7 +1166,8 @@ namespace parallel
         dealii::internal::t8code::element_destroy(forest, eclass, GeometryInfo<dim>::max_children_per_cell, t8code_child);
         if(any_child_coarsen_flag_set && !all_child_coarsen_flag_set){
           dealii::internal::t8code::types::locidx num_elements_in_tree = adapt_list[which_tree].size();
-          for (unsigned int c = 0; c < GeometryInfo<dim>::max_children_per_cell;
+          unsigned int max_delete = std::min(GeometryInfo<dim>::max_children_per_cell, (unsigned int) num_elements_in_tree);
+          for (unsigned int c = 0; c < max_delete;
              ++c)
           {
             if (adapt_list[which_tree][num_elements_in_tree-1-c] == -1){
