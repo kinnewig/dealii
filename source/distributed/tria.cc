@@ -879,6 +879,13 @@ namespace parallel
               }
           }
 
+
+          this->dealii::Triangulation<dim, spacedim>::
+                  prepare_coarsening_and_refinement();
+          //TODO? enforce periodic balance
+
+          std::cout << "mesh flags:" <<std::endl;
+
           mesh_changed =
             std::any_of(this->begin_active(),
                         active_cell_iterator{this->end()},
