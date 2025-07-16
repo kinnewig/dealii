@@ -835,49 +835,9 @@ namespace parallel
                                                ghost_owner, ghost_eclass);
                 }
             }
-
-
-
-          // see if any flags are still set
-          for (const auto &cell : this->active_cell_iterators()){
-            if(cell->refine_flag_set() ){
-                std::cout<<"refine flag set for cell "<< cell->id()<<", loop:"<<loop_iter<<",rank: "<<Utilities::MPI::this_mpi_process(this->get_communicator()) <<std::endl;
-              }
-              if(cell->coarsen_flag_set() ){
-                std::cout<<"coarsen flag set for cell "<< cell->id()<<", loop:"<<loop_iter<<",rank: "<<Utilities::MPI::this_mpi_process(this->get_communicator())<<std::endl;
-              }
           }
 
-            // clear coarsen flag if not all children were marked
-            for (const auto &cell : this->cell_iterators())
-              {
-                // nothing to do if we are already on the finest level
-                if (cell->is_active())
-                  continue;
-
-                const unsigned int n_children       = cell->n_children();
-                unsigned int       flagged_children = 0;
-                for (unsigned int child = 0; child < n_children; ++child)
-                  if (cell->child(child)->is_active() &&
-                      cell->child(child)->coarsen_flag_set())
-                    ++flagged_children;
-
-                // if not all children were flagged for coarsening, remove
-                // coarsen flags
-                if (flagged_children < n_children)
-                  for (unsigned int child = 0; child < n_children; ++child)
-                    if (cell->child(child)->is_active())
-                      cell->child(child)->clear_coarsen_flag();
-              }
-          std::cout<<"cleared coarsening flags"<<std::endl;
-          for (const auto &cell : this->active_cell_iterators()){
-            if(cell->refine_flag_set() ){
-                std::cout<<"refine flag set for cell "<< cell->id()<<", loop:"<<loop_iter<<",rank: "<<Utilities::MPI::this_mpi_process(this->get_communicator()) <<std::endl;
-              }
-              if(cell->coarsen_flag_set() ){
-                std::cout<<"coarsen flag set for cell "<< cell->id()<<", loop:"<<loop_iter<<",rank: "<<Utilities::MPI::this_mpi_process(this->get_communicator())<<std::endl;
-              }
-          }
+          //TODO? enforce periodic balance
 
           mesh_changed =
             std::any_of(this->begin_active(),
