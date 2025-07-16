@@ -350,6 +350,10 @@ namespace parallel
                                           ghost_eclass,
                                           t8code_cell);
 
+      // t8_debugf("try to match ghost element in dealii index %i\n", dealii_index);
+      // const t8_scheme *scheme = t8_forest_get_scheme(forest);
+      // scheme->element_debug_print(ghost_eclass, ghost_element);
+
       int dealii_type = 0;
       for (int i = 0; i < l; ++i)
         {
@@ -367,9 +371,10 @@ namespace parallel
 
           const int child_id = dealii::internal::t8code::element_ancestor_id(
             forest, ghost_eclass, ghost_element, i + 1);
+          // std::cout<<"found childid " <<child_id << " at level "<<i<<std::endl;
 
           dealii::internal::t8code::element_child(forest, ghost_eclass, t8code_cell, child_id, t8code_cell);
-          std::cout<<"child_id: "<<child_id<<", type: "<<dealii_type<<std::endl;
+//          std::cout<<"child_id: "<<child_id<<", type: "<<dealii_type<<std::endl;
           int deal_child_id = (ghost_eclass == T8_ECLASS_TRIANGLE) ? dealii::internal::parallel::distributed::t8code_to_deal_children[dealii_type][child_id] : child_id;
           dealii_index = cell->child_index(deal_child_id);
 
@@ -388,13 +393,13 @@ namespace parallel
                                                                 l,
                                                                 dealii_index);
 
-      std::cout<<"corresponding cell: " << cell->id() << std::endl;
+//      std::cout<<"corresponding cell: " << cell->id() << std::endl;
       if (cell->has_children())
         delete_all_children<dim, spacedim>(cell);
       else
         {
           cell->clear_coarsen_flag();
-          std::cout<<"set subdomain id from cell "<<cell->id()<<"to "<<ghost_owner<<std::endl;
+          // std::cout<<"set subdomain id from cell "<<cell->id()<<"to "<<ghost_owner<<std::endl;
           cell->set_subdomain_id(ghost_owner);
         }
     }
@@ -605,7 +610,7 @@ namespace parallel
         std::vector<double> coords(3*cell->n_vertices());
         for(unsigned int ivertex=0; ivertex < cell->n_vertices();ivertex++){
           const auto &vertex = cell->vertex(ivertex);
-          std::cout<<vertex<<std::endl;
+//          std::cout<<vertex<<std::endl;
           coords[3*ivertex+0]=vertex[0];
           coords[3*ivertex+1]=vertex[1];
           coords[3*ivertex+2]=0;
@@ -625,27 +630,27 @@ namespace parallel
 
               unsigned int orientation = (cell->face_orientation(iface) != cell->neighbor(iface)->face_orientation(ineighface));//cell->combined_face_orientation(iface);
               if(eclass == T8_ECLASS_TRIANGLE && iface == 2){
-                std::cout<<"switched orientation because own cell is triangle and on face 2"<<std::endl;
+//                std::cout<<"switched orientation because own cell is triangle and on face 2"<<std::endl;
                 orientation = !orientation;
               }
               if(neigh_eclass == T8_ECLASS_TRIANGLE && ineighface == 2){
-                std::cout<<"switched orientation because neighbor cell is triangle and on face 2"<<std::endl;
+//                std::cout<<"switched orientation because neighbor cell is triangle and on face 2"<<std::endl;
                 orientation = !orientation;
               }
 
-              std::cout<<"added face join from cell "<<t8_index<<" face "<<t8_iface<<" to cell "<<t8_neighbor_index<<" face " << t8_ineighface <<" with orientation "<<orientation <<std::endl;
+//              std::cout<<"added face join from cell "<<t8_index<<" face "<<t8_iface<<" to cell "<<t8_neighbor_index<<" face " << t8_ineighface <<" with orientation "<<orientation <<std::endl;
               std::cout<<cell->face_orientation(iface)<<" "<<cell->neighbor(iface)->face_orientation(ineighface)<<std::endl;
-              std::cout<<"t8_cmesh_set_join(cmesh,"<< t8_index<<", "<<t8_neighbor_index<<", "<< t8_iface <<", "<< t8_ineighface<<", "<<orientation <<")"<<std::endl;
+//              std::cout<<"t8_cmesh_set_join(cmesh,"<< t8_index<<", "<<t8_neighbor_index<<", "<< t8_iface <<", "<< t8_ineighface<<", "<<orientation <<")"<<std::endl;
               t8_cmesh_set_join(cmesh, t8_index, t8_neighbor_index, t8_iface, t8_ineighface, orientation);
             }
         }
+
         std::vector<t8_gloidx_t> vertex_list(cell->n_vertices());
         for(unsigned int ivertex=0; ivertex< cell->n_vertices();ivertex++){
           vertex_list[ivertex] = cell->vertex_index(ivertex);
           std::cout << "local vertex "<<ivertex<<" connected to global vertex " << cell->vertex_index(ivertex);
         }
         t8_cmesh_set_global_vertices_of_tree(cmesh, t8_index, vertex_list.data(), cell->n_vertices());
-
       }
       t8_cmesh_commit(cmesh, this->mpi_communicator);
 
@@ -730,7 +735,7 @@ namespace parallel
       int loop_iter = 0;
       do
         {
-          std::cout<<"loop iter: "<<loop_iter<<std::endl;
+//          std::cout<<"loop iter: "<<loop_iter<<std::endl;
           loop_iter++;
           for (const auto &cell : this->cell_iterators_on_level(0))
             {
@@ -878,20 +883,10 @@ namespace parallel
             std::any_of(this->begin_active(),
                         active_cell_iterator{this->end()},
                         [loop_iter,this](const CellAccessor<dim, spacedim> &cell) {
-//                          bool flag_set = false;
-//                          const auto parent = cell.parent();
-//                          for (unsigned int i = 0; i < GeometryInfo<dim>::max_children_per_cell; i++){
-//                            const auto sibling = parent.child(i);
-//                            if(sibling.refine_flag_set() || sibling.coarsen_flag_set()) {
-//                              flag_set = true;
-//                            }
-//                          }
-
-
                           return (cell.refine_flag_set() ||
                                  cell.coarsen_flag_set());
                         });
-          std::cout << "mesh_changed" << mesh_changed <<std::endl;
+//          std::cout << "mesh_changed" << mesh_changed <<std::endl;
           // actually do the refinement to change the local mesh by
           // calling the base class refinement function directly
           try
@@ -1133,12 +1128,6 @@ namespace parallel
     // our coarse cells in the same order in which t8code will:
     const auto first_local = t8_forest_get_first_local_tree_id(forest);
     typename dealii::internal::t8code::types::element *t8code_cell;
-      std::cout<<"all cells with refinement flag before building list: "<<std::endl;
-        for (const auto & cell : triangulation.active_cell_iterators()){
-          if(cell->refine_flag_set()){
-            std::cout<<cell->id()<<std::endl;
-          }
-        }
     for (int c = 0; c < n_coarse_elements; ++c)
       {
         unsigned int global_coarse_cell_index =
@@ -1152,14 +1141,12 @@ namespace parallel
 
         dealii::internal::t8code::init_root(forest, eclass, t8code_cell);
         build_list(cell, forest, c, t8code_cell, my_subdomain, 0);
-        std::cout<<"adapt values for local forest coarse cell "<<c<<": ";
-        for(const auto& adapt_value : adapt_list[c]){
-          std::cout<<adapt_value<<" ";
-        }
-        std::cout<<std::endl;
         dealii::internal::t8code::element_destroy(forest, eclass, 1 , &t8code_cell);
+        // std::cout<<"root "<<c<<":"<<std::endl;
+        // for (const auto &entry : adapt_list[c]){
+        //   std::cout<<entry<<std::endl;
+        // }
       }
-
   }
 
 
@@ -1174,7 +1161,7 @@ namespace parallel
     const types::subdomain_id                       my_subdomain,
     const int dealii_type)
   {
-    std::cout<<"call build list recursively on tree: "<< which_tree<<", dealii_type"<<dealii_type<<", cellid: "<<cell->id()<<std::endl;
+//    std::cout<<"call build list recursively on tree: "<< which_tree<<", dealii_type"<<dealii_type<<", cellid: "<<cell->id()<<std::endl;
 
     if (cell->is_active())
       {
@@ -1208,7 +1195,7 @@ namespace parallel
           {
             int deal_child_id = (eclass == T8_ECLASS_TRIANGLE) ? dealii::internal::parallel::distributed::t8code_to_deal_children[dealii_type][c] : c;
             int deal_child_type = (deal_child_id % 4 == 3)? (dealii_type + 1) % 6 : dealii_type;
-            std::cout<<"deal_child_id: "<<deal_child_id<<", t8_child_id: "<<c<<std::endl;
+            // std::cout<<"deal_child_id: "<<deal_child_id<<", t8_child_id: "<<c<<std::endl;
             build_list(cell->child(deal_child_id), forest, which_tree, t8code_child[c], my_subdomain, deal_child_type);
             if(cell->child(deal_child_id)->is_active() && cell->child(deal_child_id)->coarsen_flag_set()){
               any_child_coarsen_flag_set = true;
@@ -1252,7 +1239,7 @@ namespace parallel
     (void) elements;
     RefineAndCoarsenList<dim, spacedim> *this_object =
       reinterpret_cast<RefineAndCoarsenList<dim, spacedim> *>(t8_forest_get_user_data(forest_from));
-      std::cout<<"found value" << this_object->adapt_list[which_tree][lelement_id] <<" for tree "<<which_tree<<" and elem "<<lelement_id<<std::endl; 
+      // std::cout<<"found value" << this_object->adapt_list[which_tree][lelement_id] <<" for tree "<<which_tree<<" and elem "<<lelement_id<<std::endl; 
       return this_object->adapt_list[which_tree][lelement_id];
   }
 
@@ -1297,12 +1284,6 @@ namespace parallel
       // t8code's user_data object
       Assert(t8_forest_get_user_data(parallel_forest) == this, ExcInternalError());
       t8_forest_set_user_data(parallel_forest, &refine_and_coarsen_list);
-      std::cout<<"all cells with refinement flag before going into adapt: "<<std::endl;
-        for (const auto & cell : this->active_cell_iterators()){
-          if(cell->refine_flag_set()){
-            std::cout<<cell->id()<<std::endl;
-          }
-        }
       parallel_forest = dealii::internal::t8code::adapt(
         parallel_forest,
         &RefineAndCoarsenList<dim, spacedim>::adapt_callback);
