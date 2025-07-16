@@ -16866,7 +16866,7 @@ namespace
     // clear coarsen flags if either all existing neighbors will be
     // refined or all but one will be and the cell is in the interior
     // of the domain
-    if (count == n_neighbors ||
+    if ((count == n_neighbors && n_neighbors != 0) ||
         (count >= n_neighbors - 1 &&
          n_neighbors == GeometryInfo<dim>::faces_per_cell))
       {
