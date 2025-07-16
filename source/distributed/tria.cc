@@ -1265,7 +1265,7 @@ namespace parallel
       this->prepare_coarsening_and_refinement();
 
       // signal that refinement is going to happen
-//      this->signals.pre_distributed_refinement();
+      this->signals.pre_distributed_refinement();
 
       // now do the work we're supposed to do when we are in charge
       // make sure all flags are cleared on cells we don't own, since nothing
@@ -1325,6 +1325,23 @@ namespace parallel
                          1, 1, 0,
                          0, 1, 0, nullptr);
 
+
+      // since refinement and/or coarsening on the parallel forest
+      // has happened, we need to update the quadrant cell relations
+
+      update_cell_relations();
+
+      // signals that parallel_forest has been refined and cell relations have
+      // been updated
+      this->signals.post_p4est_refinement();
+
+      t8_forest_t old_forest; //remember old forest for data exchange
+      if (this->cell_attached_data.n_attached_data_sets > 0)
+        {
+          old_forest = parallel_forest;
+          t8_forest_ref(old_forest);
+        }
+
       parallel_forest = dealii::internal::t8code::partition(parallel_forest, T8_GHOST_VERTICES);
       std::string fileprefix_p = "partitioned";
       Assert(t8_forest_get_user_data(parallel_forest) == this, ExcInternalError());
@@ -1333,14 +1350,17 @@ namespace parallel
                          1, 1, 0,
                          0, 1, 0, nullptr);
 
-      // since refinement and/or coarsening on the parallel forest
-      // has happened, we need to update the quadrant cell relations
-//TODO! HOW?
-//      update_cell_relations();
 
-      // signals that parallel_forest has been refined and cell relations have
-      // been updated
-//      this->signals.post_t8code_refinement();
+      // pack data before triangulation gets updated
+      if (this->cell_attached_data.n_attached_data_sets > 0)
+        {
+          this->data_serializer.pack_data(
+            this->local_cell_relations,
+            this->cell_attached_data.pack_callbacks_fixed,
+            this->cell_attached_data.pack_callbacks_variable,
+            this->get_mpi_communicator());
+        }
+
       // finally copy back from local part of tree to deal.II
       // triangulation. before doing so, make sure there are no refine or
       // coarsen flags pending
