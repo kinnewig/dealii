@@ -398,6 +398,161 @@ namespace parallel
         }
     }
 
+    template <int dim, int spacedim>
+    using cell_relation_t = typename std::pair<
+      typename dealii::Triangulation<dim, spacedim>::cell_iterator,
+      CellStatus>;
+
+    /**
+     * Adds a pair of a @p dealii_cell and its @p status
+     * to the vector containing all relations @p cell_rel.
+     * The pair will be inserted in the position corresponding to the one
+     * of the p4est quadrant in the underlying p4est sc_array. The position
+     * will be determined from @p idx, which is the position of the quadrant
+     * in its corresponding @p tree. The p4est quadrant will be deduced from
+     * the @p tree by @p idx.
+     */
+    template <int dim, int spacedim>
+    inline void
+    add_single_cell_relation(
+      std::vector<cell_relation_t<dim, spacedim>>                &cell_rel,
+      const typename dealii::internal::t8code::types::tree   *tree,
+      const unsigned int                                          idx,
+      const typename Triangulation<dim, spacedim>::cell_iterator &dealii_cell,
+      const CellStatus                                            status)
+    {
+      const unsigned int local_quadrant_index = tree->elements_offset + idx;
+
+      // check if we will be writing into valid memory
+      Assert(local_quadrant_index < cell_rel.size(), ExcInternalError());
+
+      // store relation
+      cell_rel[local_quadrant_index] = std::make_pair(dealii_cell, status);
+    }
+
+
+
+    /**
+     * This is the recursive part of the member function
+     * update_cell_relations().
+     *
+     * Find the relation between the @p t8code_cell and the @p dealii_cell in the
+     * corresponding @p tree. Depending on the CellStatus relation between the two,
+     * a new entry will either be inserted in @p cell_rel or the recursion
+     * will be continued.
+     */
+    template <int dim, int spacedim>
+    void
+    update_cell_relations_recursively(
+      const typename dealii::internal::t8code::types::forest forest,
+      std::vector<cell_relation_t<dim, spacedim>>                  &cell_rel,
+      const typename dealii::internal::t8code::types::locidx     ltreeid,
+      const typename Triangulation<dim, spacedim>::cell_iterator   &dealii_cell,
+      const typename dealii::internal::t8code::types::element *t8code_cell, const int dealii_type) //TODO: adapt dealii type for children
+    {
+      //get element array
+      // use new function from forest to get idx
+      const typename dealii::internal::t8code::types::locidx idx = t8_forest_element_leaf_index_in_tree (forest, t8code_cell, ltreeid);
+      if (idx == -1 &&
+          (dealii::internal::t8code::element_overlaps_tree(forest, 
+            *t8_forest_get_tree(forest, ltreeid),
+            t8code_cell) == false))
+        // this element and none of its children belong to us.
+        return;
+
+      dealii::internal::t8code::types::eclass eclass = t8_eclass_from_reference_cell(dealii_cell->reference_cell());
+
+
+      // recurse further if both p4est and dealii still have children
+      const bool t8code_has_children = (idx == -1);
+      if (t8code_has_children && dealii_cell->has_children())
+        {
+          // recurse further
+          typename dealii::internal::t8code::types::element* //TODO: max children dependent on shape
+            t8code_child[GeometryInfo<dim>::max_children_per_cell];
+                  dealii::internal::t8code::element_new(forest,
+                                                        eclass,GeometryInfo<dim>::max_children_per_cell,
+                                                        t8code_child);
+
+
+          dealii::internal::t8code::element_children(forest, eclass,
+            t8code_cell, t8code_child);
+
+          for (unsigned int t8_childid = 0; t8_childid < GeometryInfo<dim>::max_children_per_cell;
+              ++t8_childid)
+            {
+            int deal_child_id = (eclass == T8_ECLASS_TRIANGLE) ? dealii::internal::parallel::distributed::t8code_to_deal_children[dealii_type][t8_childid] : t8_childid;
+            int deal_child_type = (deal_child_id % 4 == 3)? (dealii_type + 1) % 6 : dealii_type;
+
+              update_cell_relations_recursively<dim, spacedim>(forest, 
+                cell_rel, ltreeid, dealii_cell->child(deal_child_id), t8code_child[t8_childid], deal_child_type);
+            }
+                              dealii::internal::t8code::element_destroy(forest,
+                                                        eclass,GeometryInfo<dim>::max_children_per_cell,
+                                                        t8code_child);
+        }
+      else if (!t8code_has_children && !dealii_cell->has_children())
+        {
+          // this active cell didn't change
+          // save pair into corresponding position
+          add_single_cell_relation<dim, spacedim>(
+            cell_rel, t8_forest_get_tree(forest, ltreeid), idx, dealii_cell, CellStatus::cell_will_persist);
+        }
+      else if (t8code_has_children) // based on the conditions above, we know that
+                                  // dealii_cell has no children
+        {
+          // this cell got refined in p4est, but the dealii_cell has not yet been
+          // refined
+
+          // this quadrant is not active
+          // generate its children, and store information in those
+          typename dealii::internal::t8code::types::element* //TODO: max children dependent on shape
+            t8code_child[GeometryInfo<dim>::max_children_per_cell];
+                  dealii::internal::t8code::element_new(forest,
+                                                        eclass,GeometryInfo<dim>::max_children_per_cell,
+                                                        t8code_child);
+
+
+          dealii::internal::t8code::element_children(forest, eclass,
+            t8code_cell, t8code_child);
+
+          // mark first child with CellStatus::cell_will_be_refined and the
+          // remaining children with CellStatus::cell_invalid, but associate them
+          // all with the parent cell unpack algorithm will be called only on
+          // CellStatus::cell_will_be_refined flagged quadrant
+          CellStatus cell_status;
+          for (unsigned int deal_childid = 0; deal_childid < GeometryInfo<dim>::max_children_per_cell;
+              ++deal_childid)
+            {
+            const unsigned int t8_childid = (eclass == T8_ECLASS_TRIANGLE)? 
+                                  dealii::internal::parallel::distributed::deal_to_t8code_children[dealii_type][deal_childid] : deal_childid;
+            t8_locidx_t child_idx = 
+              t8_forest_element_leaf_index_in_tree (forest, t8code_child[t8_childid], ltreeid);
+
+              cell_status = (deal_childid == 0) ? CellStatus::cell_will_be_refined :
+                                      CellStatus::cell_invalid;
+
+              add_single_cell_relation<dim, spacedim>(
+                cell_rel, t8_forest_get_tree(forest,ltreeid), child_idx, dealii_cell, cell_status);
+            }
+                              dealii::internal::t8code::element_destroy(forest,
+                                                        eclass,GeometryInfo<dim>::max_children_per_cell,
+                                                        t8code_child);
+        }
+      else // based on the conditions above, we know that t8code_cell has no
+          // children, and the dealii_cell does
+        {
+          // its children got coarsened into this cell in p4est,
+          // but the dealii_cell still has its children
+          add_single_cell_relation<dim, spacedim>(
+            cell_rel,
+            t8_forest_get_tree(forest, ltreeid),
+            idx,
+            dealii_cell,
+            CellStatus::children_will_be_coarsened);
+        }
+    }
+
 
 
     template <int dim, int spacedim>
@@ -820,7 +975,7 @@ namespace parallel
       // also update the cell_relations, which will be used for
       // repartitioning, further refinement/coarsening, and unpacking
       // of stored or transferred data.
-      //      update_cell_relations();
+            update_cell_relations();
     }
 
 
@@ -1213,6 +1368,42 @@ namespace parallel
     }
     
 
+
+
+
+    template <int dim, int spacedim>
+    DEAL_II_CXX20_REQUIRES((concepts::is_valid_dim_spacedim<dim, spacedim>))
+    void Triangulation<dim, spacedim>::update_cell_relations()
+    {
+      // std::cout<<"enter ucr"<<std::endl;
+
+      // reorganize memory for local_cell_relations
+      this->local_cell_relations.resize(parallel_forest->local_num_elements);
+      this->local_cell_relations.shrink_to_fit();
+
+      // recurse over p4est
+      for (const auto &cell : this->cell_iterators_on_level(0))
+        {
+          // skip coarse cells that are not ours
+          if (tree_exists_locally<dim, spacedim>(
+                parallel_forest,
+                coarse_cell_to_t8code_tree_permutation[cell->index()]) == false)
+            continue;
+
+          // initialize auxiliary top level p4est quadrant
+          typename dealii::internal::t8code::types::element
+            *root;
+          dealii::internal::t8code::types::eclass eclass = t8_eclass_from_reference_cell(cell->reference_cell());
+          dealii::internal::t8code::element_new(parallel_forest, eclass, 1, &root);
+          dealii::internal::t8code::init_root(parallel_forest, eclass, root);
+
+          t8_locidx_t ltreeid = t8_forest_get_local_id(parallel_forest, coarse_cell_to_t8code_tree_permutation[cell->index()]);
+
+          update_cell_relations_recursively<dim, spacedim>(parallel_forest,
+            this->local_cell_relations, ltreeid, cell, root, 0);
+          dealii::internal::t8code::element_destroy(parallel_forest, eclass, 1, &root);
+        }
+    }
 
 
 
