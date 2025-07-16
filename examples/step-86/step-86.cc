@@ -54,6 +54,9 @@
 #include <deal.II/numerics/solution_transfer.h>
 #include <deal.II/numerics/matrix_tools.h>
 
+#include <deal.II/fe/fe_simplex_p.h>
+#include <deal.II/fe/mapping_fe.h>
+
 // The only new include file relevant here is the one that provides us with the
 // PETScWrappers::TimerStepper class:
 #include <deal.II/lac/petsc_ts.h>
@@ -82,7 +85,7 @@ namespace Step86
   class HeatEquation : public ParameterAcceptor
   {
   public:
-    HeatEquation(const MPI_Comm mpi_communicator);
+    HeatEquation(int degree, const MPI_Comm mpi_communicator);
     void run();
 
   private:
@@ -92,7 +95,12 @@ namespace Step86
     TimerOutput        computing_timer;
 
     parallel::distributed::Triangulation<dim> triangulation;
-    FE_Q<dim>                                 fe;
+//    FE_Q<dim>                                 fe;
+    //FE_SimplexP<dim>                                 fe;
+    const hp::FECollection<dim> fe;
+    const hp::QCollection<dim> quadrature_formula;
+    const hp::MappingCollection<dim> mapping;
+
     DoFHandler<dim>                           dof_handler;
 
     IndexSet locally_owned_dofs;
@@ -241,7 +249,7 @@ namespace Step86
   // parameters to be set upon reading from an input file via the
   // ParameterAcceptor mechanism previously detailed in step-60 and step-70.
   template <int dim>
-  HeatEquation<dim>::HeatEquation(const MPI_Comm mpi_communicator)
+  HeatEquation<dim>::HeatEquation(int degree, const MPI_Comm mpi_communicator)
     : ParameterAcceptor("/Heat Equation/")
     , mpi_communicator(mpi_communicator)
     , pcout(std::cout,
@@ -250,18 +258,21 @@ namespace Step86
                       pcout,
                       TimerOutput::summary,
                       TimerOutput::wall_times)
-    , triangulation(mpi_communicator,
-                    typename Triangulation<dim>::MeshSmoothing(
-                      Triangulation<dim>::smoothing_on_refinement |
-                      Triangulation<dim>::smoothing_on_coarsening))
-    , fe(1)
+    , triangulation(mpi_communicator)
+    // , triangulation(mpi_communicator,
+    //                 typename Triangulation<dim>::MeshSmoothing(
+    //                   Triangulation<dim>::smoothing_on_refinement |
+    //                   Triangulation<dim>::smoothing_on_coarsening))
+    , fe(FE_Q<dim>(degree), FE_SimplexP<dim>(degree))
+    , quadrature_formula(QGauss<dim>(degree+1), QGaussSimplex<dim>(degree+1))
+    , mapping (MappingFE<dim,dim>(FE_Q<dim>(1)), MappingFE<dim,dim>(FE_SimplexP<dim>(1)))
     , dof_handler(triangulation)
     , time_stepper_data("",
                         "beuler",
                         /* start time */ 0.0,
                         /* end time */ 1.0,
                         /* initial time step */ 0.025)
-    , initial_global_refinement(5)
+    , initial_global_refinement(2)
     , max_delta_refinement_level(2)
     , mesh_adaptation_frequency(0)
     , right_hand_side_function("/Heat Equation/Right hand side")
@@ -344,7 +355,7 @@ namespace Step86
     homogeneous_constraints.clear();
     homogeneous_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
     homogeneous_constraints.merge(hanging_nodes_constraints);
-    VectorTools::interpolate_boundary_values(dof_handler,
+    VectorTools::interpolate_boundary_values(mapping, dof_handler,
                                              0,
                                              Functions::ZeroFunction<dim>(),
                                              homogeneous_constraints);
@@ -394,8 +405,14 @@ namespace Step86
 
     DataOut<dim> data_out;
     data_out.attach_dof_handler(dof_handler);
-    data_out.add_data_vector(y, "U");
-    data_out.build_patches();
+    data_out.add_data_vector(y, "U", DataOut_DoFData<dim,dim>::type_dof_data);
+
+    Vector<float> subdomain(triangulation.n_active_cells());
+    for (unsigned int i = 0; i < subdomain.size(); ++i)
+      subdomain(i) = triangulation.locally_owned_subdomain();
+    data_out.add_data_vector(subdomain, "subdomain", DataOut_DoFData<dim,dim>::type_cell_data);
+
+    data_out.build_patches(mapping);
 
     data_out.set_flags(DataOutBase::VtkFlags(time, timestep_number));
 
@@ -467,21 +484,12 @@ namespace Step86
     locally_relevant_solution_dot = tmp_solution_dot;
 
 
-    const QGauss<dim> quadrature_formula(fe.degree + 1);
-    FEValues<dim>     fe_values(fe,
+    hp::FEValues<dim>     fe_values_collection(mapping, fe,
                             quadrature_formula,
                             update_values | update_gradients |
                               update_quadrature_points | update_JxW_values);
 
-    const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
-    const unsigned int n_q_points    = quadrature_formula.size();
 
-    std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
-
-    std::vector<Tensor<1, dim>> solution_gradients(n_q_points);
-    std::vector<double>         solution_dot_values(n_q_points);
-
-    Vector<double> cell_residual(dofs_per_cell);
 
     right_hand_side_function.set_time(time);
 
@@ -518,7 +526,21 @@ namespace Step86
     for (const auto &cell : dof_handler.active_cell_iterators())
       if (cell->is_locally_owned())
         {
-          fe_values.reinit(cell);
+
+          int collection_index = (int) cell->reference_cell().is_simplex(); 
+          fe_values_collection.reinit(cell, collection_index, collection_index);
+          const FEValues<dim> &fe_values = fe_values_collection.get_present_fe_values();
+
+          //fe_values.reinit(cell);
+    const unsigned int dofs_per_cell = fe_values.get_fe().n_dofs_per_cell();
+    const unsigned int n_q_points    = fe_values.get_quadrature().size();
+
+    std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
+
+    std::vector<Tensor<1, dim>> solution_gradients(n_q_points);
+    std::vector<double>         solution_dot_values(n_q_points);
+
+    Vector<double> cell_residual(dofs_per_cell);
 
           fe_values.get_function_gradients(locally_relevant_solution,
                                            solution_gradients);
@@ -630,23 +652,28 @@ namespace Step86
   {
     TimerOutput::Scope t(computing_timer, "assemble implicit Jacobian");
 
-    const QGauss<dim> quadrature_formula(fe.degree + 1);
-    FEValues<dim>     fe_values(fe,
+    hp::FEValues<dim>     fe_values_collection(mapping, fe,
                             quadrature_formula,
                             update_values | update_gradients |
                               update_quadrature_points | update_JxW_values);
 
-    const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
 
-    std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
-
-    FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
 
     jacobian_matrix = 0;
     for (const auto &cell : dof_handler.active_cell_iterators())
       if (cell->is_locally_owned())
         {
-          fe_values.reinit(cell);
+          int collection_index = (int) cell->reference_cell().is_simplex(); 
+          fe_values_collection.reinit(cell, collection_index, collection_index);
+          const FEValues<dim> &fe_values = fe_values_collection.get_present_fe_values();
+
+//          fe_values.reinit(cell);//actually needed? or can we remove it and make fe_values const?
+    const unsigned int dofs_per_cell = fe_values.get_fe().n_dofs_per_cell();
+
+    std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
+
+    FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
+
 
           cell->get_dof_indices(local_dof_indices);
 
@@ -809,14 +836,25 @@ namespace Step86
     locally_relevant_solution = y;
 
     Vector<float> estimated_error_per_cell(triangulation.n_active_cells());
-    KellyErrorEstimator<dim>::estimate(dof_handler,
-                                       QGauss<dim - 1>(fe.degree + 1),
-                                       {},
-                                       locally_relevant_solution,
-                                       estimated_error_per_cell);
+    // KellyErrorEstimator<dim>::estimate(dof_handler,
+    //                                    QGauss<dim - 1>(fe.degree + 1),
+    //                                    {},
+    //                                    locally_relevant_solution,
+    //                                    estimated_error_per_cell);
+
+    KellyErrorEstimator<dim>::estimate(MappingFE<dim,dim>(FE_SimplexP<dim>(1)),//is ignored anyway
+      dof_handler,
+      hp::QCollection<dim-1>(QGauss<dim - 1>(fe[0].degree + 1), QGaussSimplex<dim - 1>(fe[1].degree + 1)),
+      std::map<types::boundary_id, const Function<dim> *>(),
+      locally_relevant_solution,
+      estimated_error_per_cell,{},nullptr,numbers::invalid_unsigned_int,numbers::invalid_subdomain_id,numbers::invalid_material_id,KellyErrorEstimator<dim>::face_diameter_over_twice_max_degree);
+
+
+
 
     parallel::distributed::GridRefinement::refine_and_coarsen_fixed_fraction(
       triangulation, estimated_error_per_cell, 0.6, 0.4);
+//      triangulation, estimated_error_per_cell, 0.0, 1.0);
 
     const unsigned int max_grid_level =
       initial_global_refinement + max_delta_refinement_level;
@@ -922,7 +960,7 @@ namespace Step86
         current_constraints.clear();
         current_constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
         current_constraints.merge(hanging_nodes_constraints);
-        VectorTools::interpolate_boundary_values(dof_handler,
+        VectorTools::interpolate_boundary_values(mapping, dof_handler,
                                                  0,
                                                  boundary_values_function,
                                                  current_constraints);
@@ -1095,7 +1133,7 @@ namespace Step86
     // the initial conditions and call the function that does the time
     // stepping, and everything else will happen automatically:
     PETScWrappers::MPI::Vector solution(locally_owned_dofs, mpi_communicator);
-    VectorTools::interpolate(dof_handler, initial_value_function, solution);
+    VectorTools::interpolate(mapping, dof_handler, initial_value_function, solution);
 
     petsc_ts.solve(solution);
   }
@@ -1114,7 +1152,7 @@ int main(int argc, char **argv)
       using namespace Step86;
 
       Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
-      HeatEquation<2>                  heat_equation_solver(MPI_COMM_WORLD);
+      HeatEquation<2>                  heat_equation_solver(1, MPI_COMM_WORLD);
 
       const std::string input_filename =
         (argc > 1 ? argv[1] : "heat_equation.prm");
