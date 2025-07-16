@@ -39,7 +39,7 @@ namespace internal
     types::forest balance(types::forest forest){
   t8_forest_t new_forest;
   t8_forest_init (&new_forest);
-  t8_forest_set_balance (new_forest, forest, 0);
+  t8_forest_set_balance (new_forest, forest, 1);
   t8_forest_set_user_data(new_forest, t8_forest_get_user_data(forest));
   t8_forest_commit (new_forest);
   return new_forest;
