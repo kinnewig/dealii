@@ -183,8 +183,8 @@ namespace parallel
         for (unsigned int c = 0; c < cell->n_children(); ++c)
           delete_all_children_and_self<dim, spacedim>(cell->child(c));
       else{
-        std::cout<<"set coarsen for cell "<< cell->id()<<",rank: "<<Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)<<std::endl;
-//        cell->set_coarsen_flag();
+//        std::cout<<"set coarsen for cell "<< cell->id()<<",rank: "<<Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)<<std::endl;
+        cell->set_coarsen_flag();
       }
     }
 
@@ -549,8 +549,7 @@ namespace parallel
             for (const auto &cell :
                  this->active_cell_iterators_on_level(this->n_levels() - 1))
               {
-                std::cout<<"set coarsen for cell "<< cell->id()<<",rank: "<<Utilities::MPI::this_mpi_process(this->get_communicator())<<std::endl;
-//                cell->set_coarsen_flag();
+                cell->set_coarsen_flag();
               }
             try
               {
