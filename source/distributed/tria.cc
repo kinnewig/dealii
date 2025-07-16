@@ -1361,15 +1361,130 @@ namespace parallel
           DEAL_II_ASSERT_UNREACHABLE();
         }
 
-//      this->update_periodic_face_map();
+      // transfer data after triangulation got updated
+      if (this->cell_attached_data.n_attached_data_sets > 0)
+        {
+          this->execute_transfer(parallel_forest,
+                                 old_forest);
+          t8_forest_unref(&old_forest);
+
+          // also update the CellStatus information on the new mesh
+          this->data_serializer.unpack_cell_status(this->local_cell_relations);
+        }
+
+
+      this->update_periodic_face_map();
       this->update_number_cache();
 
       // signal that refinement is finished
-//      this->signals.post_distributed_refinement();//
+      this->signals.post_distributed_refinement();//
     }
     
 
 
+
+    template <int dim, int spacedim>
+    DEAL_II_CXX20_REQUIRES((concepts::is_valid_dim_spacedim<dim, spacedim>))
+    void Triangulation<dim, spacedim>::execute_transfer(
+      const typename dealii::internal::t8code::types::forest
+        parallel_forest,
+      const typename dealii::internal::t8code::types::forest
+        old_forest)
+    {
+      Assert(this->data_serializer.sizes_fixed_cumulative.size() > 0,
+             ExcMessage("No data has been packed!"));
+
+      // Resize memory according to the data that we will receive.
+      this->data_serializer.dest_data_fixed.resize(
+        parallel_forest->local_num_elements *
+        this->data_serializer.sizes_fixed_cumulative.back());
+
+
+      sc_array_t src_data_view, dest_data_view;
+      sc_array_init_data(&src_data_view, this->data_serializer.src_data_fixed.data(), this->data_serializer.sizes_fixed_cumulative.back(), old_forest->local_num_elements);
+      sc_array_init_data(&dest_data_view, this->data_serializer.dest_data_fixed.data(), this->data_serializer.sizes_fixed_cumulative.back(), parallel_forest->local_num_elements);
+
+      t8_forest_partition_data(old_forest, parallel_forest, &src_data_view, &dest_data_view);
+
+      // Release memory of previously packed data.
+      this->data_serializer.src_data_fixed.clear();
+      this->data_serializer.src_data_fixed.shrink_to_fit();
+      if (this->data_serializer.variable_size_data_stored)
+        {
+          // Resize memory according to the data that we will receive.
+          this->data_serializer.dest_sizes_variable.resize(
+            parallel_forest->local_num_elements);
+      sc_array_t src_size_view, dest_size_view;
+      sc_array_init_data(&src_size_view, this->data_serializer.src_sizes_variable.data(), sizeof(int), old_forest->local_num_elements);
+      sc_array_init_data(&dest_size_view, this->data_serializer.dest_sizes_variable.data(), sizeof(int), parallel_forest->local_num_elements);
+
+      t8_forest_partition_data(old_forest, parallel_forest, &src_size_view, &dest_size_view);
+
+          // Resize memory according to the data that we will receive.
+          this->data_serializer.dest_data_variable.resize(
+            std::accumulate(this->data_serializer.dest_sizes_variable.begin(),
+                            this->data_serializer.dest_sizes_variable.end(),
+                            std::vector<int>::size_type(0)));
+
+      int max_data_size_loc =(this->data_serializer.src_sizes_variable.size() ? *std::max_element(this->data_serializer.src_sizes_variable.begin(),
+                            this->data_serializer.src_sizes_variable.end()) : 0 ); //collective?
+
+      int max_data_size;
+      MPI_Allreduce(&max_data_size_loc, &max_data_size, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+      std::cout <<"Max data size: "<<max_data_size<<", loc: "<<max_data_size_loc<<std::endl;
+
+      sc_array_t src_data_padded, dest_data_padded;
+      sc_array_init_count(&src_data_padded, max_data_size, old_forest->local_num_elements);
+      sc_array_init_count(&dest_data_padded, max_data_size, parallel_forest->local_num_elements);
+
+
+      std::cout<<"src representation:"<<std::endl;
+      for(const auto &char_rep : this->data_serializer.src_data_variable){
+        std::cout<<(int)char_rep<<" ";
+      }
+      std::cout<<std::endl;
+
+//memcpy src_data_variable in padded
+      size_t cumulative_index=0;
+      for(int idata = 0; idata< old_forest->local_num_elements; idata++){
+        std::cout<<"memcpy to, idata "<<idata<<", cumulative_index "<<cumulative_index<<std::endl;
+        if(this->data_serializer.src_sizes_variable[idata]){
+
+          memcpy(sc_array_index_int(&src_data_padded, idata) , &(this->data_serializer.src_data_variable[cumulative_index]), this->data_serializer.src_sizes_variable[idata]);
+        }
+        cumulative_index += this->data_serializer.src_sizes_variable[idata];
+      }
+
+//communicate padded data
+      t8_forest_partition_data(old_forest, parallel_forest, &src_data_padded, &dest_data_padded);
+
+//memcpy dest_data_variable from padded
+      cumulative_index = 0;
+      for(int idata = 0; idata< parallel_forest->local_num_elements; idata++){
+        std::cout<<"memcpy from, idata "<<idata<<", cumulative_index "<<cumulative_index<<std::endl;
+        if(this->data_serializer.dest_sizes_variable[idata]){
+
+          memcpy( &(this->data_serializer.dest_data_variable[cumulative_index]), sc_array_index_int(&dest_data_padded, idata), this->data_serializer.dest_sizes_variable[idata]);
+        }
+        cumulative_index += this->data_serializer.dest_sizes_variable[idata];
+      }
+      std::cout<<"dest representation:"<<std::endl;
+      for(const auto &char_rep : this->data_serializer.dest_data_variable){
+        std::cout<<(int)char_rep<<" ";
+      }
+      std::cout<<std::endl;
+
+
+//Release memory of padded data
+          sc_array_reset(&src_data_padded);
+          sc_array_reset(&dest_data_padded);
+          // Release memory of previously packed data.
+          this->data_serializer.src_sizes_variable.clear();
+          this->data_serializer.src_sizes_variable.shrink_to_fit();
+          this->data_serializer.src_data_variable.clear();
+          this->data_serializer.src_data_variable.shrink_to_fit();
+        }
+    }
 
 
     template <int dim, int spacedim>
