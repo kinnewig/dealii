@@ -961,9 +961,18 @@ namespace DoFTools
 
                     for (unsigned int dof = 0; dof != fe.n_dofs_per_vertex();
                          ++dof)
-                      selected_dofs.add_index(
-                        line->child(0)->vertex_dof_index(1, dof));
-
+                    {
+                      if (!cell->neighbor_child_on_subface(face,0)->is_artificial()){
+                        selected_dofs.add_index(
+                          line->child(0)->vertex_dof_index(1, dof, cell->neighbor_child_on_subface(face,0)->active_fe_index()));
+                      }else if (!cell->neighbor_child_on_subface(face,1)->is_artificial()){
+                        selected_dofs.add_index(
+                          line->child(1)->vertex_dof_index(0, dof, cell->neighbor_child_on_subface(face,1)->active_fe_index()));
+                      }else{
+                        std::cout<<"Skip hanging node constraint because artificial elements are finer than ghost element"<<std::endl;
+                        continue;
+                      }
+                    }
                     for (unsigned int child = 0; child < 2; ++child)
                       {
                         if (cell->neighbor_child_on_subface(face, child)
