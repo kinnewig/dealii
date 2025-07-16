@@ -12097,11 +12097,60 @@ namespace internal
       template <int dim, int spacedim>
       static bool
       coarsening_allowed(
-        const typename Triangulation<dim, spacedim>::cell_iterator &)
+        const typename Triangulation<dim, spacedim>::cell_iterator &cell)
       {
-        AssertThrow(false, ExcNotImplemented());
+        // in 1d, coarsening is always allowed since we don't enforce
+        // the 2:1 constraint there
+        if (dim == 1)
+          return true;
 
-        return false;
+        //Check/Assert that cell has children??
+
+
+        //Loop over children
+        for (unsigned int c=0; c< cell->n_children(); c++){
+          const typename Triangulation<dim, spacedim>::cell_iterator
+            child_cell = cell->child(c);
+          //Loop over faces
+          for(unsigned int n=0; n<cell->n_faces(); n++){
+            if(child_cell->at_boundary(n))
+              continue;
+
+            if (!child_cell->neighbor_is_coarser(n))
+              {
+              const typename Triangulation<dim, spacedim>::cell_iterator
+                child_neighbor = child_cell->neighbor(n);
+//            if(neighbor_cell sibling)
+//              continue;
+
+                // in 2d, if the child's neighbor is coarser, then it has
+                // no children. however, in 3d it might be
+                // otherwise. consider for example, that our face might be
+                // refined with cut_x, but the neighbor is refined with
+                // cut_xy at that face. then the neighbor pointers of the
+                // children of our cell will point to the common neighbor
+                // cell, not to its children. what we really want to know
+                // in the following is, whether the neighbor cell is
+                // refined twice with reference to our cell. that only
+                // has to be asked, if the child's neighbor is not a
+                // coarser one. we check whether some of the children on
+                // the neighbor are not flagged for coarsening, in that
+                // case we may not coarsen. it is enough to check the
+                // first child because we have already fixed the coarsen
+                // flags on finer levels
+                if (child_neighbor->has_children() &&
+                    !(child_neighbor->child(0)->is_active() &&
+                      child_neighbor->child(0)->coarsen_flag_set()))
+                  return false;
+
+                // the same applies, if the neighbors children are not
+                // refined but will be after refinement
+                if (child_neighbor->refine_flag_set())
+                  return false;
+              }
+          }
+        }
+        return true;
       }
     };
 
