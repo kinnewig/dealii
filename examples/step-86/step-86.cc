@@ -979,9 +979,54 @@ namespace Step86
   template <int dim>
   void HeatEquation<dim>::run()
   {
-    GridGenerator::hyper_L(triangulation);
-    triangulation.refine_global(initial_global_refinement);
+//    GridGenerator::subdivided_hyper_cube_with_simplices(triangulation,1);
+//      GridGenerator::hyper_cube(triangulation);
+    #if 1
+          const std::vector<Point<2>> vertices = {
+            { 0.0,  0.0}, {+1.0,  0.0}, { +2.0,  0.0}, 
+            { 0.0, +1.0}, {+1.0, +1.0}, { +2.0, +1.0},
+            { 0.0, +2.0}, {+1.0, +2.0} };
+          std::vector<CellData<dim>> cells;
+  
+          CellData<dim> tri0b;
+          tri0b.vertices = {0, 1, 4};
+          cells.push_back(tri0b);
 
+          CellData<dim> tri0t;
+          tri0t.vertices = {0, 4, 3};
+          cells.push_back(tri0t);
+
+          CellData<dim> tri1b;
+          tri1b.vertices = {1,2,5};
+          cells.push_back(tri1b);
+
+          CellData<dim> tri1t;
+          tri1t.vertices = {1, 5, 4};
+          cells.push_back(tri1t);
+
+#if 0
+          CellData<dim> tri2b;
+          tri2b.vertices = {3, 4, 7};
+          cells.push_back(tri2b);
+
+          CellData<dim> tri2t;
+          tri2t.vertices = {3, 7, 6};
+          cells.push_back(tri2t);
+#else
+
+          CellData<dim> quad2;
+          quad2.vertices = {3, 4, 6, 7};
+          cells.push_back(quad2);
+#endif
+
+          triangulation.create_triangulation(vertices, cells, SubCellData());
+
+#endif
+          for (const auto &cell: dof_handler.active_cell_iterators())
+            if(cell->is_locally_owned())
+              cell->set_active_fe_index(cell->reference_cell().is_simplex());
+
+    triangulation.refine_global(initial_global_refinement);
     setup_system(/* time */ 0);
 
     // We then set up the time stepping object and associate the matrix we will
