@@ -459,10 +459,8 @@ namespace parallel
        */
       void
       execute_transfer(
-        const typename dealii::internal::t8code::types::forest *parallel_forest,
-        const typename dealii::internal::t8code::types::gloidx
-          *previous_global_first_quadrant);
-
+        const typename dealii::internal::t8code::types::forest parallel_forest,
+        const typename dealii::internal::t8code::types::forest old_forest);
       /**
        * Implementation of the same function as in the base class.
        *

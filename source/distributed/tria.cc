@@ -32,6 +32,7 @@
 #include <t8_cmesh/t8_cmesh_types.h>
 #include <t8_data/t8_element_array_iterator.hxx>
 #include <t8_forest/t8_forest_ghost.h>
+#include <t8_forest/t8_forest_partition.h>
 #include <t8_vtk/t8_vtk_writer.h>
 #  include <t8_schemes/t8_scheme.hxx>
 #include <t8_schemes/t8_default/t8_default.hxx>
@@ -1200,8 +1201,8 @@ namespace parallel
         dealii::internal::t8code::element_children(forest, eclass, t8code_cell,
                                                             t8code_child);
 
-        bool any_child_coarsen_flag_set;
-        bool all_child_coarsen_flag_set;
+        bool any_child_coarsen_flag_set=false;
+        bool all_child_coarsen_flag_set=true;
         for (unsigned int c = 0; c < GeometryInfo<dim>::max_children_per_cell;
              ++c)
           {
