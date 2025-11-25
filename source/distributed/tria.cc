@@ -44,7 +44,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
-#include <limits>
+//#include <limits>
 #include <numeric>
 
 
@@ -611,9 +611,15 @@ namespace parallel
         for(unsigned int ivertex=0; ivertex < cell->n_vertices();ivertex++){
           const auto &vertex = cell->vertex(ivertex);
 //          std::cout<<vertex<<std::endl;
+
+          //TODO: Loop ?
           coords[3*ivertex+0]=vertex[0];
-          coords[3*ivertex+1]=vertex[1];
-          coords[3*ivertex+2]=0;
+          if constexpr (dim >=2) {
+            coords[3*ivertex+1]=vertex[1];
+          }
+          if constexpr (dim >=3) {
+            coords[3*ivertex+2]=0;
+          }
         }
         t8_cmesh_set_tree_vertices (cmesh, t8_index, coords.data(), cell->n_vertices());
 
