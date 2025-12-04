@@ -27,6 +27,7 @@ set(T8CODE_DIR "" CACHE PATH
 set_if_empty(T8CODE_DIR "$ENV{T8CODE_DIR}")
 set_if_empty(SC_DIR "$ENV{SC_DIR}")
 
+set(P4EST_ROOT ${P4EST_DIR})
 find_package(T8CODE CONFIG)
 
 
@@ -38,8 +39,6 @@ find_package(T8CODE CONFIG)
   endif()
 
   
-  message("T8_CMAKE_BUILD")
-
   if(${T8_CMAKE_BUILD})
     message(STATUS "Found CMAKE BUILD")
   else()
